@@ -33,7 +33,9 @@ export async function apiRequest(pathname, { method = 'GET', body, headers = {},
     payload = requestHeaders['content-type'] === 'application/json' ? JSON.stringify(body) : body;
   }
 
-  const response = await fetch(`${apiBaseUrl}${pathname}`, { method, headers: requestHeaders, body: payload });
+  const fetchOptions = { method, headers: requestHeaders, body: payload };
+  if (payload && typeof payload.pipe === 'function') fetchOptions.duplex = 'half';
+  const response = await fetch(`${apiBaseUrl}${pathname}`, fetchOptions);
   const contentType = response.headers.get('content-type') || '';
   const result = contentType.includes('application/json') ? await response.json() : await response.text();
   if (!response.ok && response.status !== 202) {
@@ -48,9 +50,14 @@ export async function apiRequest(pathname, { method = 'GET', body, headers = {},
 }
 
 export async function uploadZip(pathname, zipPath, headers = {}) {
+  const stat = fs.statSync(zipPath);
   return await apiRequest(pathname, {
     method: 'POST',
-    headers: { 'content-type': 'application/zip', ...headers },
-    body: fs.readFileSync(zipPath)
+    headers: {
+      'content-type': 'application/zip',
+      'content-length': String(stat.size),
+      ...headers
+    },
+    body: fs.createReadStream(zipPath)
   });
 }

@@ -5,6 +5,30 @@ import os from 'node:os';
 import path from 'node:path';
 
 const EXCLUDED_NAMES = new Set(['.git', 'node_modules', '.DS_Store']);
+const SENSITIVE_DIRECTORIES = new Set(['.ssh', '.aws', '.azure', '.gcloud']);
+const SENSITIVE_EXACT_NAMES = new Set([
+  '.env',
+  '.npmrc',
+  '.pypirc',
+  '.netrc',
+  'credentials.json',
+  'credential.json',
+  'secrets.json',
+  'secret.json',
+  'service-account.json',
+  'id_rsa',
+  'id_dsa',
+  'id_ecdsa',
+  'id_ed25519'
+]);
+const SENSITIVE_EXTENSIONS = new Set(['.pem', '.key', '.p12', '.pfx']);
+const SENSITIVE_NAME_PATTERNS = [
+  /(^|[-_.])secret(s)?([-_.]|$)/,
+  /(^|[-_.])token([-_.]|$)/,
+  /(^|[-_.])credential(s)?([-_.]|$)/,
+  /(^|[-_.])api[-_]?key([-_.]|$)/,
+  /(^|[-_.])private[-_]?key([-_.]|$)/
+];
 
 export function inspectSource(sourcePath) {
   const absolutePath = path.resolve(sourcePath);
@@ -73,16 +97,30 @@ export function readLocalManifest(source) {
   }
 }
 
-function walkFiles(root) {
-  const files = [];
-  for (const entry of fs.readdirSync(root, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+function walkFiles(root, current = root, files = []) {
+  for (const entry of fs.readdirSync(current, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
     if (EXCLUDED_NAMES.has(entry.name) || entry.name === '.htmlshare.json' || entry.name.endsWith('.htmlshare.json')) continue;
-    const entryPath = path.join(root, entry.name);
-    if (entry.isSymbolicLink()) throw inputError(`发布目录中包含符号链接：${path.relative(root, entryPath)}`);
-    if (entry.isDirectory()) files.push(...walkFiles(entryPath));
+    const entryPath = path.join(current, entry.name);
+    const relativePath = path.relative(root, entryPath).replaceAll(path.sep, '/');
+    if (entry.isSymbolicLink()) throw inputError(`发布目录中包含符号链接：${relativePath}`);
+    if (isSensitivePath(relativePath, entry.isDirectory())) {
+      throw inputError(`发布目录中包含疑似敏感文件：${relativePath}。请移出后再发布。`);
+    }
+    if (entry.isDirectory()) walkFiles(root, entryPath, files);
     else if (entry.isFile()) files.push(entryPath);
   }
   return files;
+}
+
+function isSensitivePath(relativePath, isDirectory) {
+  const parts = relativePath.split('/');
+  const basename = parts.at(-1).toLowerCase();
+  if (isDirectory && SENSITIVE_DIRECTORIES.has(basename)) return true;
+  if (parts.some((part) => SENSITIVE_DIRECTORIES.has(part.toLowerCase()))) return true;
+  if (basename === '.env' || basename.startsWith('.env.')) return true;
+  if (SENSITIVE_EXACT_NAMES.has(basename)) return true;
+  if (SENSITIVE_EXTENSIONS.has(path.extname(basename))) return true;
+  return SENSITIVE_NAME_PATTERNS.some((pattern) => pattern.test(basename));
 }
 
 function sidecarManifestPath(sourcePath) {
@@ -95,10 +133,26 @@ function hashFiles(files, root) {
   for (const file of files) {
     hash.update(path.relative(root, file).replaceAll(path.sep, '/'));
     hash.update('\0');
-    hash.update(fs.readFileSync(file));
+    hash.update(hashFileChunked(file));
     hash.update('\0');
   }
   return hash.digest('hex');
+}
+
+function hashFileChunked(filePath) {
+  const hash = createHash('sha256');
+  const fd = fs.openSync(filePath, 'r');
+  const buffer = Buffer.allocUnsafe(64 * 1024);
+  try {
+    let bytesRead = 0;
+    do {
+      bytesRead = fs.readSync(fd, buffer, 0, buffer.length, null);
+      if (bytesRead > 0) hash.update(buffer.subarray(0, bytesRead));
+    } while (bytesRead > 0);
+  } finally {
+    fs.closeSync(fd);
+  }
+  return hash.digest();
 }
 
 function inputError(message) {

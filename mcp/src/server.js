@@ -18,14 +18,14 @@ const server = new McpServer(
   { name: 'html-share-workbench', version: '0.3.1' },
   {
     instructions: [
-      'Publish or update local HTML through one safe workflow:',
-      '1. Check auth_status and use start_login when DingTalk authorization is required.',
-      '2. Run precheck_package and never guess an entry file when several HTML files exist.',
-      '3. Resolve new versus update exactly; use find_sites and never guess an ambiguous update target.',
-      '4. Select one access policy. Resolve named users or departments with resolve_contacts. External passwords are exactly four ASCII letters or digits.',
-      '5. Call prepare_publish and show its complete confirmation summary to the user.',
-      '6. Call execute_publish only in a later turn after explicit confirmation.',
-      'An update creates a version and keeps the stable link. Never expose delegated tokens.'
+      '发布或更新本地 HTML 必须走同一个安全流程：',
+      '1. 先调用 auth_status；需要钉钉授权时再调用 start_login。',
+      '2. 调用 precheck_package 预检文件；存在多个 HTML 时不能猜入口文件。',
+      '3. 精确判断新建还是更新；需要更新时用 find_sites 或本地 manifest 定位，不能按相似标题猜测。',
+      '4. 选择一种分享范围。仅协作者可见时，用 resolve_contacts 解析人员或部门。外链密码必须恰好为 4 位 ASCII 字母或数字。',
+      '5. 调用 prepare_publish，把完整 confirmation 展示给用户。',
+      '6. 只有用户在后续明确确认后，才能调用 execute_publish。',
+      '更新会创建新版本并保持稳定分享链接。绝不能泄露本机委托令牌。'
     ].join('\n')
   }
 );

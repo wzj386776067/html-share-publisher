@@ -20,7 +20,7 @@ test('exposes the complete safe publish tool set over MCP stdio', async () => {
   await client.connect(transport);
   try {
     const result = await client.listTools();
-    assert.match(client.getInstructions(), /Call execute_publish only.*explicit confirmation/);
+    assert.match(client.getInstructions(), /只有用户在后续明确确认后，才能调用 execute_publish/);
     assert.deepEqual(result.tools.map((tool) => tool.name), [
       'auth_status',
       'start_login',
@@ -70,6 +70,16 @@ test('packages a directory deterministically while excluding local binding and d
     assert.equal(readLocalManifest(source).siteId, 'site_bound');
   } finally {
     packaged.cleanup();
+  }
+});
+
+test('rejects sensitive local files before packaging a directory', () => {
+  for (const filename of ['.env', 'credentials.json', 'private-key.pem', 'api-token.txt']) {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'html-share-mcp-sensitive-'));
+    fs.writeFileSync(path.join(root, 'index.html'), '<h1>Hello</h1>');
+    fs.writeFileSync(path.join(root, filename), 'secret');
+
+    assert.throws(() => inspectSource(root), /疑似敏感文件/);
   }
 });
 

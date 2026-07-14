@@ -18,7 +18,7 @@ import {
 const PLAN_MAX_AGE_MS = 15 * 60 * 1000;
 const EXTERNAL_PASSWORD_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
 
-export async function startLogin({ clientName = 'Codex HTML 分享助手' } = {}) {
+export async function startLogin({ clientName = 'HTML 分享发布助手' } = {}) {
   const current = await checkStoredAuthorization();
   if (current.status === 'authorized') return current;
 
@@ -127,10 +127,14 @@ export async function precheckPackage({ sourcePath, entryFile = '' }) {
 export async function findSites({ query = '' } = {}) {
   const authorization = await requireAuthorization();
   const { data } = await apiRequest('/api/sites');
+  const normalizedSiteId = normalizeSiteId(query);
   const normalizedQuery = normalize(query);
   const sites = data.sites
     .filter((site) => authorization.user.role === 'admin' || site.ownerId === authorization.user.id)
-    .filter((site) => !normalizedQuery || siteSearchText(site).includes(normalizedQuery))
+    .filter((site) => normalizedSiteId
+      ? site.id === normalizedSiteId
+      : (!normalizedQuery || siteSearchText(site).includes(normalizedQuery)))
+    .slice(0, 10)
     .map(siteSummary);
   return { status: 'ok', sites, count: sites.length };
 }
@@ -251,15 +255,7 @@ export async function executePublish({ planId, confirmed }) {
     if (plan.operation === 'new') site = await createSite(plan, packaged.zipPath);
     else site = await updateSite(plan, packaged.zipPath);
 
-    let external = null;
-    if (plan.accessPolicy === 'external_link') {
-      const response = await apiRequest(`/api/sites/${encodeURIComponent(site.id)}/external-share`, {
-        method: 'POST',
-        body: { password: plan.externalPassword, expiresAt: plan.externalExpiresAt }
-      });
-      site = response.data.site;
-      external = response.data.externalShare;
-    }
+    const external = plan.accessPolicy === 'external_link' ? site.externalShare : null;
     const { data: remoteManifest } = await apiRequest(`/api/sites/${encodeURIComponent(site.id)}/manifest`);
     const localManifest = {
       schemaVersion: 1,
@@ -299,10 +295,12 @@ async function createSite(plan, zipPath) {
     title: plan.title,
     description: plan.description,
     alias: '',
-    accessPolicy: plan.accessPolicy === 'external_link' ? 'collaborators' : plan.accessPolicy,
+    accessPolicy: plan.accessPolicy,
     permissions: plan.permissions,
     entryFile: plan.entryFile,
-    versionNote: plan.versionNote
+    versionNote: plan.versionNote,
+    externalPassword: plan.accessPolicy === 'external_link' ? plan.externalPassword : undefined,
+    externalExpiresAt: plan.accessPolicy === 'external_link' ? plan.externalExpiresAt : undefined
   };
   return (await uploadZip('/api/sites', zipPath, {
     'x-site-metadata': encodeURIComponent(JSON.stringify(metadata))
@@ -311,22 +309,21 @@ async function createSite(plan, zipPath) {
 
 async function updateSite(plan, zipPath) {
   const current = (await apiRequest(`/api/sites/${encodeURIComponent(plan.siteId)}`)).data;
-  if (current.externalShare) {
-    await apiRequest(`/api/sites/${encodeURIComponent(plan.siteId)}/external-share-close`, { method: 'POST' });
-  }
-  await apiRequest(`/api/sites/${encodeURIComponent(plan.siteId)}`, {
+  await uploadZip(`/api/sites/${encodeURIComponent(plan.siteId)}/versions`, zipPath, {
+    'x-version-entry-file': encodeURIComponent(plan.entryFile),
+    ...(plan.versionNote ? { 'x-version-note': encodeURIComponent(plan.versionNote) } : {})
+  });
+  return (await apiRequest(`/api/sites/${encodeURIComponent(plan.siteId)}`, {
     method: 'POST',
     body: {
       title: plan.title,
       description: plan.description,
       alias: current.alias || '',
-      accessPolicy: plan.accessPolicy === 'external_link' ? 'collaborators' : plan.accessPolicy,
-      permissions: plan.permissions
+      accessPolicy: plan.accessPolicy,
+      permissions: plan.permissions,
+      externalPassword: plan.accessPolicy === 'external_link' ? plan.externalPassword : undefined,
+      externalExpiresAt: plan.accessPolicy === 'external_link' ? plan.externalExpiresAt : undefined
     }
-  });
-  return (await uploadZip(`/api/sites/${encodeURIComponent(plan.siteId)}/versions`, zipPath, {
-    'x-version-entry-file': encodeURIComponent(plan.entryFile),
-    ...(plan.versionNote ? { 'x-version-note': encodeURIComponent(plan.versionNote) } : {})
   })).data;
 }
 
