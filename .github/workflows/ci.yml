@@ -24,8 +24,8 @@ jobs:
         working-directory: mcp
       - run: npm run verify
         working-directory: mcp
-      - name: Test client adapters
-        run: node --test installer/configure-clients.test.mjs
+      - name: Test installer and launcher
+        run: node --test installer/*.test.mjs
       - name: Build release asset
         run: bash scripts/build-release.sh v0.0.0-ci
       - name: Test clean installation
@@ -45,8 +45,16 @@ jobs:
               --client generic \
               --skip-api-check
           test -f "$RUNNER_TEMP/install/current/mcp/src/server.js"
+          test -f "$RUNNER_TEMP/install/launcher.mjs"
           test -f "$RUNNER_TEMP/install/mcp-config.json"
+          test "$(cat "$RUNNER_TEMP/install/VERSION")" = "v0.0.0-ci"
           test "$(readlink "$RUNNER_TEMP/install/current")" = "$RUNNER_TEMP/install/releases/v0.0.0-ci"
+          node -e '
+            const fs = require("fs");
+            const config = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+            if (config.mcpServers["html-share"].args[0] !== process.argv[2]) process.exit(1);
+          ' "$RUNNER_TEMP/install/mcp-config.json" "$RUNNER_TEMP/install/launcher.mjs"
+          node "$RUNNER_TEMP/install/current/mcp/scripts/verify-install.mjs" "$RUNNER_TEMP/install/launcher.mjs"
 
   windows-install:
     runs-on: windows-latest
@@ -55,8 +63,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Test client adapters
-        run: node --test installer/configure-clients.test.mjs
+      - name: Test installer and launcher
+        run: node --test installer/*.test.mjs
       - name: Test PowerShell installation
         shell: pwsh
         run: |
@@ -67,4 +75,11 @@ jobs:
             -Client generic `
             -SkipApiCheck
           if (-not (Test-Path "$env:RUNNER_TEMP/install/releases/v0.0.0-ci/mcp/src/server.js")) { exit 1 }
+          if (-not (Test-Path "$env:RUNNER_TEMP/install/launcher.mjs")) { exit 1 }
           if (-not (Test-Path "$env:RUNNER_TEMP/install/mcp-config.json")) { exit 1 }
+          if ((Get-Content "$env:RUNNER_TEMP/install/VERSION" -Raw).Trim() -ne "v0.0.0-ci") { exit 1 }
+          $Config = Get-Content "$env:RUNNER_TEMP/install/mcp-config.json" -Raw | ConvertFrom-Json
+          $ExpectedLauncher = Join-Path (Join-Path $env:RUNNER_TEMP "install") "launcher.mjs"
+          if ($Config.mcpServers.'html-share'.args[0] -ne $ExpectedLauncher) { exit 1 }
+          & node "$env:RUNNER_TEMP/install/releases/v0.0.0-ci/mcp/scripts/verify-install.mjs" $ExpectedLauncher
+          if ($LASTEXITCODE -ne 0) { exit 1 }

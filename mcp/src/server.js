@@ -15,7 +15,7 @@ import {
 } from './service.js';
 
 const server = new McpServer(
-  { name: 'html-share-workbench', version: '0.2.2' },
+  { name: 'html-share-workbench', version: '0.3.0' },
   {
     instructions: [
       'Publish or update local HTML through one safe workflow:',

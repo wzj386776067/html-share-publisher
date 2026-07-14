@@ -52,7 +52,8 @@ try {
     $PayloadDir = Join-Path $Extracted "html-share-publisher"
   }
 
-  if (-not (Test-Path (Join-Path $PayloadDir "mcp/package.json")) -or
+  if (-not (Test-Path (Join-Path $PayloadDir "launcher.mjs")) -or
+      -not (Test-Path (Join-Path $PayloadDir "mcp/package.json")) -or
       -not (Test-Path (Join-Path $PayloadDir "skills/html-share-publisher/SKILL.md")) -or
       -not (Test-Path (Join-Path $PayloadDir "installer/configure-clients.mjs"))) {
     throw "Invalid release payload: $PayloadDir"
@@ -82,13 +83,26 @@ try {
   Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $ReleaseDir
   Move-Item $ReleaseTemp $ReleaseDir
 
+  $LauncherPath = Join-Path $InstallRoot "launcher.mjs"
+  $LauncherTemp = Join-Path $InstallRoot (".launcher-" + $PID)
+  Copy-Item (Join-Path $PayloadDir "launcher.mjs") $LauncherTemp
+  Remove-Item -Force -ErrorAction SilentlyContinue $LauncherPath
+  Move-Item $LauncherTemp $LauncherPath
+  [System.IO.File]::WriteAllText((Join-Path $InstallRoot "VERSION"), "$Version`n")
+  @{
+    lastAttemptAt = [DateTime]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ")
+    lastSuccessAt = [DateTime]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ")
+    latestVersion = $Version
+    currentVersion = $Version
+  } | ConvertTo-Json | Set-Content -Encoding UTF8 (Join-Path $InstallRoot "update-state.json")
+
   if (-not $SkipRegister) {
     Write-Host "Configuring detected AI clients..."
     & $NodePath (Join-Path $ReleaseDir "installer/configure-clients.mjs") `
       --client $Client `
       --install-root $InstallRoot `
       --skill-source (Join-Path $ReleaseDir "skill") `
-      --server-path (Join-Path $ReleaseDir "mcp/src/server.js") `
+      --server-path $LauncherPath `
       --node-path $NodePath `
       --api-base $ApiBase
     if ($LASTEXITCODE -ne 0) { throw "AI client configuration failed." }
@@ -103,7 +117,7 @@ try {
 
   Write-Host ""
   Write-Host "HTML Share Publisher $Version installed successfully."
-  Write-Host "MCP: $(Join-Path $ReleaseDir 'mcp/src/server.js')"
+  Write-Host "MCP: $LauncherPath"
   Write-Host "Clients: $Client"
   if (-not $SkipRegister) { Write-Host "Restart the current AI client or open a new task." }
 } finally {

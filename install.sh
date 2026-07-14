@@ -15,7 +15,7 @@ usage() {
 Usage: install.sh [options]
 
 Options:
-  --version VERSION       Install a release tag such as v0.2.2 (default: latest)
+  --version VERSION       Install a release tag such as v0.3.0 (default: latest)
   --api-base URL          Workbench API origin
   --install-root PATH     MCP installation root
   --client CLIENTS        auto, all, codex, workbuddy, trae, codebuddy, or generic
@@ -124,7 +124,7 @@ if [[ -z "$PAYLOAD_DIR" ]]; then
   PAYLOAD_DIR="$temp_dir/release/html-share-publisher"
 fi
 
-if [[ ! -f "$PAYLOAD_DIR/mcp/package.json" || ! -f "$PAYLOAD_DIR/skills/html-share-publisher/SKILL.md" || ! -f "$PAYLOAD_DIR/installer/configure-clients.mjs" ]]; then
+if [[ ! -f "$PAYLOAD_DIR/launcher.mjs" || ! -f "$PAYLOAD_DIR/mcp/package.json" || ! -f "$PAYLOAD_DIR/skills/html-share-publisher/SKILL.md" || ! -f "$PAYLOAD_DIR/installer/configure-clients.mjs" ]]; then
   echo "Invalid release payload: $PAYLOAD_DIR" >&2
   exit 1
 fi
@@ -169,6 +169,22 @@ ln -s "$release_dir" "$current_temp"
 rm -f "$current_link"
 mv "$current_temp" "$current_link"
 
+launcher_temp="$INSTALL_ROOT/.launcher-$$"
+cp "$PAYLOAD_DIR/launcher.mjs" "$launcher_temp"
+chmod +x "$launcher_temp"
+mv -f "$launcher_temp" "$INSTALL_ROOT/launcher.mjs"
+
+version_temp="$INSTALL_ROOT/.VERSION-$$"
+printf '%s\n' "$VERSION" > "$version_temp"
+mv -f "$version_temp" "$INSTALL_ROOT/VERSION"
+
+installed_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+state_temp="$INSTALL_ROOT/.update-state-$$"
+printf '{\n  "lastAttemptAt": "%s",\n  "lastSuccessAt": "%s",\n  "latestVersion": "%s",\n  "currentVersion": "%s"\n}\n' \
+  "$installed_at" "$installed_at" "$VERSION" "$VERSION" > "$state_temp"
+chmod 600 "$state_temp"
+mv -f "$state_temp" "$INSTALL_ROOT/update-state.json"
+
 if [[ "$SKIP_REGISTER" -eq 0 ]]; then
   echo "Configuring detected AI clients..."
   node_path="$(command -v node)"
@@ -176,7 +192,7 @@ if [[ "$SKIP_REGISTER" -eq 0 ]]; then
     --client "$CLIENTS" \
     --install-root "$INSTALL_ROOT" \
     --skill-source "$current_link/skill" \
-    --server-path "$current_link/mcp/src/server.js" \
+    --server-path "$INSTALL_ROOT/launcher.mjs" \
     --node-path "$node_path" \
     --api-base "$API_BASE"
 fi
@@ -191,7 +207,7 @@ fi
 
 echo
 echo "HTML Share Publisher $VERSION installed successfully."
-echo "MCP:   $current_link/mcp/src/server.js"
+echo "MCP:   $INSTALL_ROOT/launcher.mjs"
 echo "Clients: $CLIENTS"
 if [[ "$SKIP_REGISTER" -eq 0 ]]; then
   echo "Restart the current AI client or open a new task, then ask it to publish an HTML site."

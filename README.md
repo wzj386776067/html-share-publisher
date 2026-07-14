@@ -55,6 +55,12 @@ irm https://raw.githubusercontent.com/wzj386776067/html-share-publisher/main/ins
 
 安装器默认自动识别本机已有客户端，注册名为 `html-share` 的本地 MCP，并在客户端支持标准 Skill 目录时安装 Skill。安装完成后重启当前客户端，或新建一个本地任务。
 
+## 自动更新
+
+从 `v0.3.0` 开始，所有客户端都固定连接本机 `launcher.mjs`，不再绑定某个版本目录。launcher 每 24 小时最多检查一次 GitHub Release；发现新版本后会校验 SHA-256、原子切换 MCP，并刷新客户端 Skill。检查失败或升级失败时继续运行原版本，不阻断发布。
+
+已经安装 `v0.2.x` 的用户需要执行一次升级安装以迁移到 launcher。完成这次迁移后，后续版本无需重复下载安装。设置 `HTML_SHARE_AUTO_UPDATE=false` 可以关闭自动更新。
+
 ## 测试
 
 准备一个包含 HTML 的本地目录，然后对当前 AI 说：
@@ -75,7 +81,7 @@ irm https://raw.githubusercontent.com/wzj386776067/html-share-publisher/main/ins
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/wzj386776067/html-share-publisher/main/install.sh \
-  | bash -s -- --version v0.2.2
+  | bash -s -- --version v0.3.0
 ```
 
 重复运行安装命令即可升级或修复安装。发布凭证保存在 `~/.config/html-share`，升级不会删除凭证。

@@ -8,7 +8,7 @@ Use this file when a user asks an AI agent to install HTML Share Publisher from 
 2. Confirm that the environment is a local task with terminal access. Request normal network or filesystem approval when the client requires it.
 3. Detect the operating system and current AI client.
 4. Run the official installer below. It downloads a versioned GitHub Release, verifies SHA-256, installs dependencies, configures supported clients, and runs the MCP self-test.
-5. Report the installed version and configured clients. Tell the user to restart the current AI client or open a new local task.
+5. Report the installed version and configured clients. Tell the user to restart the current AI client or open a new local task. Version `v0.3.0` and newer use a stable launcher that automatically installs later GitHub Releases, so do not ask the user to reinstall for every update.
 6. Never request or print a DingTalk token. First-use authorization is completed later through the browser URL returned by the MCP.
 
 ## macOS or Linux

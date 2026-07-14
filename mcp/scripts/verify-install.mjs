@@ -6,7 +6,9 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
-const serverPath = path.resolve(scriptDir, '../src/server.js');
+const serverPath = process.argv[2]
+  ? path.resolve(process.argv[2])
+  : path.resolve(scriptDir, '../src/server.js');
 const expectedTools = [
   'auth_status',
   'start_login',
