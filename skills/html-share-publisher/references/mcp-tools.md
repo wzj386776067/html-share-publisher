@@ -1,28 +1,28 @@
-# HTML Share MCP Tool Contract
+# HTML 分享 MCP 工具契约
 
-The execution server exposes eight tools:
+执行服务提供以下八个工具：
 
-- `auth_status`: read or complete local delegated authorization.
-- `start_login`: create a one-time DingTalk authorization URL.
-- `revoke_authorization`: revoke the current delegated token and clear local credentials.
-- `precheck_package`: package and validate a local source without publishing.
-- `find_sites`: find sites the current user can manage.
-- `resolve_contacts`: resolve people and departments to stable IDs.
-- `prepare_publish`: validate all choices and create a 15-minute confirmation plan without remote writes.
-- `execute_publish`: execute one confirmed plan, publish a new version, and write the source-specific local manifest.
+- `auth_status`：读取本地委托授权状态，或完成已经发起的授权交换。
+- `start_login`：创建一次性钉钉授权链接。
+- `revoke_authorization`：撤销当前委托令牌并清除本地凭证。
+- `precheck_package`：在不发布的情况下打包并校验本地源文件。
+- `find_sites`：查找当前用户有权管理的作品。
+- `resolve_contacts`：把人员和部门解析为稳定 ID。
+- `prepare_publish`：校验所有选择，创建 15 分钟有效的确认计划，不执行远程写入。
+- `execute_publish`：执行一个已经确认的计划，发布新版本并写入与源文件对应的本地清单。
 
-All tools return structured JSON. When `status` is `error`, use `code`, `message`, and `recovery` to guide the next user interaction. Do not work around `AUTH_REQUIRED`, `ENTRY_REQUIRED`, `UPDATE_TARGET_REQUIRED`, `CONFIRMATION_REQUIRED`, `SOURCE_CHANGED`, or permission errors.
+所有工具都返回结构化 JSON。返回的 `status` 为 `error` 时，使用 `code`、`message` 和 `recovery` 引导下一步交互。不能绕过 `AUTH_REQUIRED`、`ENTRY_REQUIRED`、`UPDATE_TARGET_REQUIRED`、`CONFIRMATION_REQUIRED`、`SOURCE_CHANGED` 或任何权限错误。
 
-`permissions` passed to `prepare_publish` must use the exact objects returned by `resolve_contacts`:
+传给 `prepare_publish` 的 `permissions` 必须使用 `resolve_contacts` 返回的原始对象：
 
 ```json
 {
-  "scopeType": "user or department",
-  "scopeId": "stable DingTalk identifier",
-  "scopeName": "display name"
+  "scopeType": "user 或 department",
+  "scopeId": "稳定的钉钉标识",
+  "scopeName": "展示名称"
 }
 ```
 
-The three access policies are `collaborators`, `company_link`, and `external_link`. External access always has a password and a future expiry. The password must be exactly four ASCII letters or digits. The server generates a compliant password and a 90-day expiry when omitted.
+三种分享策略分别是 `collaborators`、`company_link` 和 `external_link`。外部访问必须包含密码和未来的失效时间。密码必须恰好为 4 位 ASCII 字母或数字；省略时由服务端生成合规密码和 90 天有效期。
 
-`precheck_package` returns `suggestedTitle` from the selected HTML file, ZIP, or directory name. `prepare_publish.title` is optional: new works use that suggested original name when omitted, while updates preserve the existing work title. The title is also the readable name carried in newly generated share URLs; immutable `siteId` remains the real update target.
+`precheck_package` 会根据所选 HTML 文件、ZIP 包或目录名称返回 `suggestedTitle`。`prepare_publish.title` 为可选参数：新作品省略时使用这个原始名称，更新已有作品时省略则保留当前线上标题。标题也是新生成分享链接中的可读名称；真正用于精准更新的标识始终是不可变的 `siteId`。

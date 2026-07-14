@@ -1,57 +1,57 @@
 ---
 name: html-share-publisher
-description: Safely publish or update local HTML sites through the Bicheng HTML Share MCP. Use when the user asks to upload, publish, share, update, redeploy, or change access permissions for an HTML file, static site directory, or ZIP package. Enforces DingTalk authorization, package validation, exact update targeting, collaborator resolution, and explicit final confirmation before any remote write.
+description: 通过碧橙 HTML 分享 MCP 安全发布或更新本地 HTML 作品。当用户要求上传、发布、分享、更新、重新部署 HTML 文件、静态网站目录或 ZIP 包，或修改作品访问权限时使用。严格执行钉钉鉴权、文件校验、精准更新定位、协作者解析和发布前最终确认。
 ---
 
-# HTML Share Publisher
+# HTML 分享发布
 
-Use the HTML Share MCP as the execution layer. Guide the user through one predictable flow and never upload silently.
+使用 HTML 分享 MCP 执行实际操作。引导用户完成一套稳定、可预期的流程，绝不能在用户不知情时上传。
 
-When the user explicitly asks to revoke, disconnect, or forget the HTML Share AI authorization, call `revoke_authorization` and report that the next publish will require DingTalk authorization again.
+当用户明确要求撤销、断开或忘记 HTML 分享 AI 授权时，调用 `revoke_authorization`，并说明下次发布时需要重新完成钉钉授权。
 
-## Required Workflow
+## 必须执行的流程
 
-1. Call `auth_status`.
-2. If authorization is missing, call `start_login`, give the authorization URL to the user, and wait for them to finish. Call `auth_status` again afterward.
-3. Identify the exact local source path. Accept a static-site directory, one HTML file, or a ZIP.
-4. Call `precheck_package` before discussing execution.
-5. If multiple HTML candidates require an entry, show the candidates and ask the user to select one. Never choose based on filename similarity.
-6. Determine the published file name, which is also used as the work title and the readable name in its share URL:
-   - If the user already supplied a name, use it.
-   - Otherwise, show `suggestedTitle` from `precheck_package` and ask the user to enter a different name or use that default.
-   - If the user leaves it blank, says to keep the original name, or has no preference, omit `title` and let the MCP use the original HTML, ZIP, or directory name. For updates, an omitted title preserves the existing work title.
-7. Determine `new` or `update`:
-   - Treat a valid local `.htmlshare.json` as a strong update binding.
-   - Prefer an explicit `siteId` or stable share URL when supplied.
-   - Use `find_sites` when the target needs lookup.
-   - If the target is missing or ambiguous, ask. Never infer the target from title alone.
-8. Ask for one access policy if it is not already explicit:
-   - `collaborators`: only named people and departments.
-   - `company_link`: any company employee with the link.
-   - `external_link`: password-protected external link, default validity 90 days. The password must be exactly four ASCII letters or digits; generate one when the user does not provide it.
-9. For collaborators, call `resolve_contacts`. Preserve the returned stable IDs. If a name is ambiguous or absent, show candidates and ask; do not guess. Groups are not supported in this version.
-10. Call `prepare_publish` with the resolved source, operation, entry, target, and permission data.
-11. Show the returned `confirmation` in a compact summary: file name/title, new/update, target site, entry file, package size, access policy, collaborators, and external password/expiry when applicable.
-12. Stop and ask for explicit confirmation. Earlier requests such as “帮我发布” do not replace this final confirmation after the summary.
-13. Only after the user explicitly confirms, call `execute_publish` with the returned `planId` and `confirmed: true`.
-14. Return the stable share URL, site ID, version number, permission summary, and external password/expiry when applicable. Mention that a local manifest was written for precise future updates. Directories use `.htmlshare.json`; single HTML and ZIP sources use a source-specific `name.htmlshare.json` sidecar so several works can coexist in one folder.
+1. 调用 `auth_status`。
+2. 如果尚未授权，调用 `start_login`，把授权链接提供给用户并等待其完成授权，然后再次调用 `auth_status`。
+3. 确认准确的本地源文件路径。支持静态网站目录、单个 HTML 文件或 ZIP 包。
+4. 在讨论是否执行发布之前，调用 `precheck_package` 完成预检。
+5. 如果存在多个可作为入口的 HTML 文件，展示候选列表并让用户明确选择，绝不能根据文件名相似度自行猜测。
+6. 确认发布文件名。该名称同时作为作品标题和分享链接中的可读名称：
+   - 如果用户已经给出名称，直接使用。
+   - 否则展示 `precheck_package` 返回的 `suggestedTitle`，询问用户是输入新名称还是使用默认名称。
+   - 如果用户留空、表示沿用原名或没有偏好，则省略 `title`，由 MCP 使用原 HTML、ZIP 或目录名称。更新已有作品时，省略 `title` 表示保留线上作品原名。
+7. 确认是新建还是更新：
+   - 有效的本地 `.htmlshare.json` 是强更新绑定依据。
+   - 用户提供了明确的 `siteId` 或稳定分享链接时，优先使用该标识。
+   - 需要查找目标作品时调用 `find_sites`。
+   - 如果更新目标缺失或存在歧义，必须询问用户，绝不能只根据相似标题推断。
+8. 如果用户尚未明确分享范围，要求其从以下三种策略中选择一种：
+   - `collaborators`：仅指定人员和部门可以访问。
+   - `company_link`：公司员工获得链接即可访问。
+   - `external_link`：外部用户通过密码访问，默认有效期 90 天。密码必须恰好为 4 位 ASCII 字母或数字；用户未提供时自动生成。
+9. 使用协作者权限时调用 `resolve_contacts`，并原样保留返回的稳定 ID。姓名不存在或重名时，展示候选项并让用户选择，绝不能猜测。当前版本不支持群聊。
+10. 使用已经确认的源文件、操作类型、入口文件、目标作品和权限数据调用 `prepare_publish`。
+11. 简洁完整地展示返回的 `confirmation`，必须包含：文件名或标题、新建或更新、目标作品、入口文件、文件数量和大小、分享范围、协作者，以及外部访问密码和有效期（如适用）。
+12. 停止执行并向用户索取最终明确确认。用户之前说过“帮我发布”等指令，不能替代看过确认摘要后的最终确认。
+13. 只有用户明确确认后，才能调用 `execute_publish`，并传入返回的 `planId` 和 `confirmed: true`。
+14. 返回稳定分享链接、`siteId`、版本号、权限摘要，以及外部访问密码和有效期（如适用）。说明本地已经写入用于后续精准更新的清单文件：目录使用 `.htmlshare.json`；单个 HTML 和 ZIP 使用与源文件对应的 `名称.htmlshare.json`，从而允许同一目录存在多个作品。
 
-## Safety Rules
+## 安全规则
 
-- Never call `execute_publish` in the same turn that first presents the confirmation summary.
-- Never pass `confirmed: true` based on inference, prior consent, or urgency.
-- Never fabricate a person, department, `siteId`, entry file, or access policy.
-- Never expose or ask for the delegated access token. Authorization is handled by `start_login` and `auth_status`.
-- Treat a changed-source error as a mandatory re-precheck and reconfirmation.
-- Explain that an update creates a new version while keeping the stable link; it does not erase history.
-- For a single HTML file that references local assets, recommend selecting the complete directory before continuing.
+- 首次展示最终确认摘要的同一轮中，绝不能调用 `execute_publish`。
+- 不能因为之前的同意、语气紧急或自行推断而传入 `confirmed: true`。
+- 绝不能虚构人员、部门、`siteId`、入口文件或分享范围。
+- 绝不能展示或索取委托访问令牌；授权只能通过 `start_login` 和 `auth_status` 完成。
+- 收到源文件已变化的错误后，必须重新预检并再次获得用户确认。
+- 向用户说明：更新会创建新版本并保留稳定链接，不会抹掉历史版本。
+- 单个 HTML 引用了本地图片、CSS 或 JavaScript 时，建议用户改为选择完整目录后再继续。
 
-## Conversation Style
+## 对话方式
 
-Ask only for missing decisions. Combine related questions when helpful, but do not turn the flow into a long form. Translate natural language permissions directly:
+只询问尚未明确的必要决策。可以合并相关问题，但不要把流程变成长表单。把自然语言权限直接转换为对应策略：
 
-- “发给张三和技术部看” means `collaborators`, followed by contact resolution.
-- “全公司都能看” means `company_link`.
-- “给外部客户看，加密码” means `external_link`; generate a four-character alphanumeric password and use 90 days unless the user specifies otherwise. Reject custom passwords that are not exactly four ASCII letters or digits.
+- “发给张三和技术部看”表示使用 `collaborators`，然后解析协作者。
+- “全公司都能看”表示使用 `company_link`。
+- “给外部客户看，加密码”表示使用 `external_link`；用户未指定时生成 4 位字母数字密码，并使用 90 天有效期。用户自定义密码不是恰好 4 位 ASCII 字母或数字时必须拒绝。
 
-Read [MCP tool contract](references/mcp-tools.md) only when tool inputs, outputs, or recovery behavior need clarification.
+仅在需要确认工具输入、输出或错误恢复方式时，读取 [MCP 工具契约](references/mcp-tools.md)。
