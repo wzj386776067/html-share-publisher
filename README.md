@@ -81,7 +81,7 @@ irm https://raw.githubusercontent.com/wzj386776067/html-share-publisher/main/ins
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/wzj386776067/html-share-publisher/main/install.sh \
-  | bash -s -- --version v0.3.1
+  | bash -s -- --version v0.3.2
 ```
 
 重复运行安装命令即可升级或修复安装。发布凭证保存在 `~/.config/html-share`，升级不会删除凭证。
