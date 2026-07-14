@@ -31,10 +31,17 @@ jobs:
           tar -xzf output/releases/html-share-publisher.tar.gz -C "$RUNNER_TEMP/release"
           CODEX_HOME="$RUNNER_TEMP/codex-home" \
             bash "$RUNNER_TEMP/release/html-share-publisher/install.sh" \
+              --version v0.0.0-old \
+              --install-root "$RUNNER_TEMP/install" \
+              --client generic \
+              --skip-api-check
+          CODEX_HOME="$RUNNER_TEMP/codex-home" \
+            bash "$RUNNER_TEMP/release/html-share-publisher/install.sh" \
               --version "$GITHUB_REF_NAME" \
               --install-root "$RUNNER_TEMP/install" \
               --client generic \
               --skip-api-check
+          test "$(readlink "$RUNNER_TEMP/install/current")" = "$RUNNER_TEMP/install/releases/$GITHUB_REF_NAME"
       - name: Publish GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}

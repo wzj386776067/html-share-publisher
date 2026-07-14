@@ -15,7 +15,7 @@ usage() {
 Usage: install.sh [options]
 
 Options:
-  --version VERSION       Install a release tag such as v0.2.0 (default: latest)
+  --version VERSION       Install a release tag such as v0.2.1 (default: latest)
   --api-base URL          Workbench API origin
   --install-root PATH     MCP installation root
   --client CLIENTS        auto, all, codex, workbuddy, trae, codebuddy, or generic
@@ -166,7 +166,8 @@ fi
 current_temp="$INSTALL_ROOT/.current-$$"
 rm -f "$current_temp"
 ln -s "$release_dir" "$current_temp"
-mv -f "$current_temp" "$current_link"
+rm -f "$current_link"
+mv "$current_temp" "$current_link"
 
 if [[ "$SKIP_REGISTER" -eq 0 ]]; then
   echo "Configuring detected AI clients..."
