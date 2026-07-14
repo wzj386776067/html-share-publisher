@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: mcp/package-lock.json
+      - run: npm ci
+        working-directory: mcp
+      - run: npm test
+        working-directory: mcp
+      - run: npm run verify
+        working-directory: mcp
+      - name: Build release asset
+        run: bash scripts/build-release.sh v0.0.0-ci
+      - name: Test clean installation
+        run: |
+          mkdir -p "$RUNNER_TEMP/release"
+          tar -xzf output/releases/html-share-publisher.tar.gz -C "$RUNNER_TEMP/release"
+          CODEX_HOME="$RUNNER_TEMP/codex-home" \
+            bash "$RUNNER_TEMP/release/html-share-publisher/install.sh" \
+              --version v0.0.0-ci \
+              --install-root "$RUNNER_TEMP/install" \
+              --skip-register \
+              --skip-api-check
+          test -f "$RUNNER_TEMP/codex-home/skills/html-share-publisher/SKILL.md"
+          test -f "$RUNNER_TEMP/install/current/mcp/src/server.js"

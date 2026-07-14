@@ -1,0 +1,127 @@
+#!/usr/bin/env node
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { z } from 'zod';
+
+import {
+  authStatus,
+  executePublish,
+  findSites,
+  precheckPackage,
+  preparePublish,
+  revokeAuthorization,
+  resolveContacts,
+  startLogin
+} from './service.js';
+
+const server = new McpServer({ name: 'html-share-workbench', version: '0.1.0' });
+
+register('auth_status', {
+  title: '检查 HTML 分享授权',
+  description: '检查本机是否已获得用户的钉钉委托授权；若用户刚完成授权，也会在此完成令牌交换。',
+  inputSchema: {},
+  annotations: { readOnlyHint: true }
+}, authStatus);
+
+register('start_login', {
+  title: '发起钉钉授权',
+  description: '创建一次性钉钉授权链接。仅在 auth_status 返回 need_auth 时调用。',
+  inputSchema: { clientName: z.string().max(80).optional() },
+  annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false }
+}, startLogin);
+
+register('revoke_authorization', {
+  title: '撤销 HTML 分享授权',
+  description: '按用户明确要求撤销当前 AI 委托令牌，并清除本机凭证。',
+  inputSchema: {},
+  annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true }
+}, revokeAuthorization);
+
+register('precheck_package', {
+  title: '预检 HTML 作品',
+  description: '读取本地目录、HTML 或 ZIP，完成打包与服务端安全预检，不会发布。',
+  inputSchema: {
+    sourcePath: z.string().min(1).describe('本地作品目录、HTML 文件或 ZIP 的绝对路径'),
+    entryFile: z.string().optional().describe('多个 HTML 时明确指定的包内入口路径')
+  },
+  annotations: { readOnlyHint: true }
+}, precheckPackage);
+
+register('find_sites', {
+  title: '查找可更新作品',
+  description: '按 siteId、标题或分享链接查找当前用户有权管理的作品；有歧义时必须让用户选择。',
+  inputSchema: { query: z.string().optional() },
+  annotations: { readOnlyHint: true }
+}, findSites);
+
+register('resolve_contacts', {
+  title: '解析钉钉协作者',
+  description: '把用户说出的人员或部门名称解析为稳定钉钉 ID；不支持群聊，不会猜测同名结果。',
+  inputSchema: {
+    contacts: z.array(z.object({
+      type: z.enum(['user', 'department']),
+      query: z.string().min(1)
+    })).min(1)
+  },
+  annotations: { readOnlyHint: true }
+}, resolveContacts);
+
+register('prepare_publish', {
+  title: '准备 HTML 发布',
+  description: '校验文件、更新目标和权限，生成 15 分钟有效的最终确认摘要；不会写入服务器。',
+  inputSchema: {
+    sourcePath: z.string().min(1),
+    operation: z.enum(['new', 'update']),
+    title: z.string().optional(),
+    siteId: z.string().optional().describe('更新时的 siteId 或稳定分享链接；目录 manifest 可唯一定位时可省略'),
+    entryFile: z.string().optional(),
+    description: z.string().optional(),
+    versionNote: z.string().optional(),
+    accessPolicy: z.enum(['collaborators', 'company_link', 'external_link']),
+    permissions: z.array(z.object({
+      scopeType: z.enum(['user', 'department']),
+      scopeId: z.string().min(1),
+      scopeName: z.string().min(1)
+    })).optional(),
+    externalPassword: z.string().min(4).optional(),
+    externalExpiresAt: z.string().optional()
+  },
+  annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false }
+}, preparePublish);
+
+register('execute_publish', {
+  title: '执行 HTML 发布',
+  description: '仅在用户明确确认 prepare_publish 的完整摘要后执行新建或版本更新，并写回本地精准更新 manifest。',
+  inputSchema: {
+    planId: z.string().min(1),
+    confirmed: z.literal(true).describe('只有用户明确确认后才能传 true')
+  },
+  annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false }
+}, executePublish);
+
+function register(name, definition, handler) {
+  server.registerTool(name, definition, async (input) => {
+    try {
+      const result = await handler(input || {});
+      return toolResult(result);
+    } catch (error) {
+      return toolResult({
+        status: 'error',
+        code: error.code || 'UNEXPECTED_ERROR',
+        message: error.message,
+        recovery: error.recovery || '检查输入后重试；不要绕过确认或权限限制。'
+      }, true);
+    }
+  });
+}
+
+function toolResult(value, isError = false) {
+  return {
+    content: [{ type: 'text', text: JSON.stringify(value, null, 2) }],
+    structuredContent: value,
+    ...(isError ? { isError: true } : {})
+  };
+}
+
+const transport = new StdioServerTransport();
+await server.connect(transport);

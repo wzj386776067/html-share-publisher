@@ -1,0 +1,78 @@
+import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import test from 'node:test';
+
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+
+import { inspectSource, packageSource, readLocalManifest } from '../src/package-source.js';
+
+test('exposes the complete safe publish tool set over MCP stdio', async () => {
+  const transport = new StdioClientTransport({
+    command: process.execPath,
+    args: [path.resolve('src/server.js')]
+  });
+  const client = new Client({ name: 'html-share-mcp-test', version: '1.0.0' });
+  await client.connect(transport);
+  try {
+    const result = await client.listTools();
+    assert.deepEqual(result.tools.map((tool) => tool.name), [
+      'auth_status',
+      'start_login',
+      'revoke_authorization',
+      'precheck_package',
+      'find_sites',
+      'resolve_contacts',
+      'prepare_publish',
+      'execute_publish'
+    ]);
+    const execute = result.tools.find((tool) => tool.name === 'execute_publish');
+    assert.equal(execute.inputSchema.properties.confirmed.const, true);
+  } finally {
+    await client.close();
+  }
+});
+
+test('packages a directory deterministically while excluding local binding and dependencies', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'html-share-mcp-package-'));
+  fs.mkdirSync(path.join(root, 'assets'));
+  fs.mkdirSync(path.join(root, 'node_modules'));
+  fs.writeFileSync(path.join(root, 'index.html'), '<h1>Hello</h1>');
+  fs.writeFileSync(path.join(root, 'assets', 'app.js'), 'console.log("ok")');
+  fs.writeFileSync(path.join(root, '.htmlshare.json'), JSON.stringify({ siteId: 'site_bound' }));
+  fs.writeFileSync(path.join(root, 'node_modules', 'ignored.js'), 'ignored');
+
+  const source = inspectSource(root);
+  const packaged = packageSource(source);
+  try {
+    const listing = execFileSync('unzip', ['-Z1', packaged.zipPath], { encoding: 'utf8' });
+    assert.match(listing, /index\.html/);
+    assert.match(listing, /assets\/app\.js/);
+    assert.doesNotMatch(listing, /htmlshare/);
+    assert.doesNotMatch(listing, /node_modules/);
+    assert.equal(readLocalManifest(source).siteId, 'site_bound');
+  } finally {
+    packaged.cleanup();
+  }
+});
+
+test('rejects symlinks inside a publish directory', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'html-share-mcp-symlink-'));
+  fs.writeFileSync(path.join(root, 'index.html'), '<h1>Hello</h1>');
+  fs.symlinkSync(path.join(root, 'index.html'), path.join(root, 'linked.html'));
+  assert.throws(() => inspectSource(root), /符号链接/);
+});
+
+test('uses distinct manifest sidecars for multiple standalone files in one folder', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'html-share-mcp-sidecars-'));
+  const first = path.join(root, 'dashboard.html');
+  const second = path.join(root, 'review.html');
+  fs.writeFileSync(first, '<h1>Dashboard</h1>');
+  fs.writeFileSync(second, '<h1>Review</h1>');
+
+  assert.equal(inspectSource(first).manifestPath, path.join(root, 'dashboard.htmlshare.json'));
+  assert.equal(inspectSource(second).manifestPath, path.join(root, 'review.htmlshare.json'));
+});
