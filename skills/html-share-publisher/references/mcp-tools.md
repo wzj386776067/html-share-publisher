@@ -23,4 +23,4 @@ All tools return structured JSON. When `status` is `error`, use `code`, `message
 }
 ```
 
-The three access policies are `collaborators`, `company_link`, and `external_link`. External access always has a password and a future expiry. The server generates a password and a 90-day expiry when omitted.
+The three access policies are `collaborators`, `company_link`, and `external_link`. External access always has a password and a future expiry. The password must be exactly four ASCII letters or digits. The server generates a compliant password and a 90-day expiry when omitted.

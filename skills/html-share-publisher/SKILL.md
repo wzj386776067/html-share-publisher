@@ -24,7 +24,7 @@ When the user explicitly asks to revoke, disconnect, or forget the HTML Share AI
 7. Ask for one access policy if it is not already explicit:
    - `collaborators`: only named people and departments.
    - `company_link`: any company employee with the link.
-   - `external_link`: password-protected external link, default validity 90 days.
+   - `external_link`: password-protected external link, default validity 90 days. The password must be exactly four ASCII letters or digits; generate one when the user does not provide it.
 8. For collaborators, call `resolve_contacts`. Preserve the returned stable IDs. If a name is ambiguous or absent, show candidates and ask; do not guess. Groups are not supported in this version.
 9. Call `prepare_publish` with the resolved source, operation, entry, target, and permission data.
 10. Show the returned `confirmation` in a compact summary: title, new/update, target site, entry file, package size, access policy, collaborators, and external password/expiry when applicable.
@@ -48,6 +48,6 @@ Ask only for missing decisions. Combine related questions when helpful, but do n
 
 - “发给张三和技术部看” means `collaborators`, followed by contact resolution.
 - “全公司都能看” means `company_link`.
-- “给外部客户看，加密码” means `external_link`; generate a password and use 90 days unless the user specifies otherwise.
+- “给外部客户看，加密码” means `external_link`; generate a four-character alphanumeric password and use 90 days unless the user specifies otherwise. Reject custom passwords that are not exactly four ASCII letters or digits.
 
 Read [MCP tool contract](references/mcp-tools.md) only when tool inputs, outputs, or recovery behavior need clarification.

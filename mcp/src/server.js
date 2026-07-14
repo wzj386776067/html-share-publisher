@@ -15,14 +15,14 @@ import {
 } from './service.js';
 
 const server = new McpServer(
-  { name: 'html-share-workbench', version: '0.2.1' },
+  { name: 'html-share-workbench', version: '0.2.2' },
   {
     instructions: [
       'Publish or update local HTML through one safe workflow:',
       '1. Check auth_status and use start_login when DingTalk authorization is required.',
       '2. Run precheck_package and never guess an entry file when several HTML files exist.',
       '3. Resolve new versus update exactly; use find_sites and never guess an ambiguous update target.',
-      '4. Select one access policy. Resolve named users or departments with resolve_contacts.',
+      '4. Select one access policy. Resolve named users or departments with resolve_contacts. External passwords are exactly four ASCII letters or digits.',
       '5. Call prepare_publish and show its complete confirmation summary to the user.',
       '6. Call execute_publish only in a later turn after explicit confirmation.',
       'An update creates a version and keeps the stable link. Never expose delegated tokens.'
@@ -97,7 +97,8 @@ register('prepare_publish', {
       scopeId: z.string().min(1),
       scopeName: z.string().min(1)
     })).optional(),
-    externalPassword: z.string().min(4).optional(),
+    externalPassword: z.string().length(4).regex(/^[A-Za-z0-9]{4}$/).optional()
+      .describe('外链密码必须恰好为 4 位，且仅可包含英文字母或数字；省略则自动生成'),
     externalExpiresAt: z.string().optional()
   },
   annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false }

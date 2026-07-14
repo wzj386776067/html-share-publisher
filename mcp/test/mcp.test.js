@@ -9,6 +9,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 
 import { inspectSource, packageSource, readLocalManifest } from '../src/package-source.js';
+import { generateExternalPassword } from '../src/service.js';
 
 test('exposes the complete safe publish tool set over MCP stdio', async () => {
   const transport = new StdioClientTransport({
@@ -32,8 +33,19 @@ test('exposes the complete safe publish tool set over MCP stdio', async () => {
     ]);
     const execute = result.tools.find((tool) => tool.name === 'execute_publish');
     assert.equal(execute.inputSchema.properties.confirmed.const, true);
+    const prepare = result.tools.find((tool) => tool.name === 'prepare_publish');
+    const passwordSchema = prepare.inputSchema.properties.externalPassword;
+    assert.equal(passwordSchema.minLength, 4);
+    assert.equal(passwordSchema.maxLength, 4);
+    assert.equal(passwordSchema.pattern, '^[A-Za-z0-9]{4}$');
   } finally {
     await client.close();
+  }
+});
+
+test('generates four-character alphanumeric external passwords', () => {
+  for (let index = 0; index < 100; index += 1) {
+    assert.match(generateExternalPassword(), /^[A-Za-z0-9]{4}$/);
   }
 });
 

@@ -1,4 +1,4 @@
-import { randomBytes, randomUUID } from 'node:crypto';
+import { randomInt, randomUUID } from 'node:crypto';
 import { apiBaseUrl } from './config.js';
 import { apiRequest, uploadZip } from './api.js';
 import { inspectSource, packageSource, readLocalManifest } from './package-source.js';
@@ -16,6 +16,7 @@ import {
 } from './state.js';
 
 const PLAN_MAX_AGE_MS = 15 * 60 * 1000;
+const EXTERNAL_PASSWORD_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
 
 export async function startLogin({ clientName = 'Codex HTML 分享助手' } = {}) {
   const current = await checkStoredAuthorization();
@@ -187,7 +188,7 @@ export async function preparePublish(input) {
     ? (input.permissions ?? site?.permissions ?? [])
     : [];
   const externalPassword = accessPolicy === 'external_link'
-    ? String(input.externalPassword || generatePassword())
+    ? normalizeExternalPassword(input.externalPassword)
     : '';
   const externalExpiresAt = accessPolicy === 'external_link'
     ? normalizeFutureDate(input.externalExpiresAt || new Date(Date.now() + 90 * 24 * 60 * 60 * 1000))
@@ -419,8 +420,23 @@ function normalizeFutureDate(value) {
   return date.toISOString();
 }
 
-function generatePassword() {
-  return `HS-${randomBytes(6).toString('base64url')}`;
+export function generateExternalPassword() {
+  return Array.from(
+    { length: 4 },
+    () => EXTERNAL_PASSWORD_ALPHABET[randomInt(EXTERNAL_PASSWORD_ALPHABET.length)]
+  ).join('');
+}
+
+function normalizeExternalPassword(value) {
+  const password = String(value || generateExternalPassword()).trim();
+  if (!/^[A-Za-z0-9]{4}$/.test(password)) {
+    throw toolError(
+      'INVALID_EXTERNAL_PASSWORD',
+      '外链密码必须为 4 位，且仅可包含字母或数字。',
+      '请提供恰好 4 位英文字母或数字，或省略密码让系统自动生成。'
+    );
+  }
+  return password;
 }
 
 function toolError(code, message, recovery = '') {
