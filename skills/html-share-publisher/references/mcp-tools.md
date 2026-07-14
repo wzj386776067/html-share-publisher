@@ -24,3 +24,5 @@ All tools return structured JSON. When `status` is `error`, use `code`, `message
 ```
 
 The three access policies are `collaborators`, `company_link`, and `external_link`. External access always has a password and a future expiry. The password must be exactly four ASCII letters or digits. The server generates a compliant password and a 90-day expiry when omitted.
+
+`precheck_package` returns `suggestedTitle` from the selected HTML file, ZIP, or directory name. `prepare_publish.title` is optional: new works use that suggested original name when omitted, while updates preserve the existing work title. The title is also the readable name carried in newly generated share URLs; immutable `siteId` remains the real update target.

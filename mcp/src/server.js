@@ -15,7 +15,7 @@ import {
 } from './service.js';
 
 const server = new McpServer(
-  { name: 'html-share-workbench', version: '0.3.0' },
+  { name: 'html-share-workbench', version: '0.3.1' },
   {
     instructions: [
       'Publish or update local HTML through one safe workflow:',
@@ -86,7 +86,7 @@ register('prepare_publish', {
   inputSchema: {
     sourcePath: z.string().min(1),
     operation: z.enum(['new', 'update']),
-    title: z.string().optional(),
+    title: z.string().optional().describe('作品名称，也会出现在分享链接中；省略时新作品使用源文件、ZIP 或目录原名，更新则保留现有名称'),
     siteId: z.string().optional().describe('更新时的 siteId 或稳定分享链接；目录 manifest 可唯一定位时可省略'),
     entryFile: z.string().optional(),
     description: z.string().optional(),

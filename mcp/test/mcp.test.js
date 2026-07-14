@@ -9,7 +9,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 
 import { inspectSource, packageSource, readLocalManifest } from '../src/package-source.js';
-import { generateExternalPassword } from '../src/service.js';
+import { generateExternalPassword, normalizeSiteId } from '../src/service.js';
 
 test('exposes the complete safe publish tool set over MCP stdio', async () => {
   const transport = new StdioClientTransport({
@@ -34,6 +34,7 @@ test('exposes the complete safe publish tool set over MCP stdio', async () => {
     const execute = result.tools.find((tool) => tool.name === 'execute_publish');
     assert.equal(execute.inputSchema.properties.confirmed.const, true);
     const prepare = result.tools.find((tool) => tool.name === 'prepare_publish');
+    assert.match(prepare.inputSchema.properties.title.description, /源文件、ZIP 或目录原名/);
     const passwordSchema = prepare.inputSchema.properties.externalPassword;
     assert.equal(passwordSchema.minLength, 4);
     assert.equal(passwordSchema.maxLength, 4);
@@ -88,4 +89,21 @@ test('uses distinct manifest sidecars for multiple standalone files in one folde
 
   assert.equal(inspectSource(first).manifestPath, path.join(root, 'dashboard.htmlshare.json'));
   assert.equal(inspectSource(second).manifestPath, path.join(root, 'review.htmlshare.json'));
+  assert.equal(inspectSource(first).defaultTitle, 'dashboard');
+});
+
+test('derives default titles from source names and accepts readable share URLs as update targets', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'html-share-mcp-title-'));
+  const directory = path.join(root, '季度经营复盘');
+  fs.mkdirSync(directory);
+  fs.writeFileSync(path.join(directory, 'index.html'), '<h1>Review</h1>');
+  const zipPath = path.join(root, '经营看板.zip');
+  fs.writeFileSync(zipPath, 'placeholder');
+
+  assert.equal(inspectSource(directory).defaultTitle, '季度经营复盘');
+  assert.equal(inspectSource(zipPath).defaultTitle, '经营看板');
+  assert.equal(
+    normalizeSiteId('https://share-content.example/s/%E5%AD%A3%E5%BA%A6%E7%BB%8F%E8%90%A5%E5%A4%8D%E7%9B%98~site_1234-abcd/'),
+    'site_1234-abcd'
+  );
 });

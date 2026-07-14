@@ -15,6 +15,7 @@ export function inspectSource(sourcePath) {
     return {
       sourcePath: absolutePath,
       sourceRoot: path.dirname(absolutePath),
+      defaultTitle: path.basename(absolutePath, path.extname(absolutePath)),
       manifestPath: sidecarManifestPath(absolutePath),
       kind: 'zip',
       files: [absolutePath],
@@ -27,6 +28,7 @@ export function inspectSource(sourcePath) {
     return {
       sourcePath: absolutePath,
       sourceRoot: path.dirname(absolutePath),
+      defaultTitle: path.basename(absolutePath, path.extname(absolutePath)),
       manifestPath: sidecarManifestPath(absolutePath),
       kind: 'html',
       files: [absolutePath],
@@ -41,6 +43,7 @@ export function inspectSource(sourcePath) {
   return {
     sourcePath: absolutePath,
     sourceRoot: absolutePath,
+    defaultTitle: path.basename(absolutePath),
     manifestPath: path.join(absolutePath, '.htmlshare.json'),
     kind: 'directory',
     files,

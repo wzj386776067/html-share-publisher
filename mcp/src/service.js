@@ -108,6 +108,7 @@ export async function precheckPackage({ sourcePath, entryFile = '' }) {
       status: 'ready',
       sourcePath: source.sourcePath,
       sourceKind: source.kind,
+      suggestedTitle: source.defaultTitle,
       fingerprint: source.fingerprint,
       htmlCandidates: data.htmlCandidates,
       entryFile: data.entryFile,
@@ -179,9 +180,9 @@ export async function preparePublish(input) {
       throw toolError('UPDATE_TARGET_REQUIRED', '没有找到唯一的更新目标。', '请提供 siteId 或在作品目录保留 .htmlshare.json。');
     }
     site = await findManageableSite(targetId, authorization.user);
-  } else if (!String(input.title || '').trim()) {
-    throw toolError('TITLE_REQUIRED', '新作品必须提供标题。', '询问用户作品标题后重新准备发布。');
   }
+
+  const title = String(input.title || site?.title || source.defaultTitle || '').trim();
 
   const accessPolicy = input.accessPolicy;
   const permissions = accessPolicy === 'collaborators'
@@ -203,7 +204,7 @@ export async function preparePublish(input) {
     fingerprint: source.fingerprint,
     operation,
     siteId: site?.id || '',
-    title: String(input.title || site?.title || '').trim(),
+    title,
     description: String(input.description ?? site?.description ?? '').trim(),
     entryFile: precheck.entryFile,
     versionNote: String(input.versionNote || '').trim(),
@@ -397,11 +398,13 @@ function siteSearchText(site) {
   return normalize([site.id, site.title, site.alias, site.ownerName].join(' '));
 }
 
-function normalizeSiteId(value) {
+export function normalizeSiteId(value) {
   const text = String(value || '').trim();
-  if (/^site_[A-Za-z0-9-]+$/.test(text)) return text;
+  if (/^site_[A-Za-z0-9_-]+$/.test(text)) return text;
   try {
-    const match = new URL(text).pathname.match(/\/s\/(site_[^/]+)/);
+    const routeKey = new URL(text).pathname.match(/\/s\/([^/]+)/)?.[1] || '';
+    const decoded = decodeURIComponent(routeKey);
+    const match = decoded.match(/(?:^|~)(site_[A-Za-z0-9_-]+)$/);
     return match?.[1] || '';
   } catch {
     return '';

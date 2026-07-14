@@ -16,21 +16,25 @@ When the user explicitly asks to revoke, disconnect, or forget the HTML Share AI
 3. Identify the exact local source path. Accept a static-site directory, one HTML file, or a ZIP.
 4. Call `precheck_package` before discussing execution.
 5. If multiple HTML candidates require an entry, show the candidates and ask the user to select one. Never choose based on filename similarity.
-6. Determine `new` or `update`:
+6. Determine the published file name, which is also used as the work title and the readable name in its share URL:
+   - If the user already supplied a name, use it.
+   - Otherwise, show `suggestedTitle` from `precheck_package` and ask the user to enter a different name or use that default.
+   - If the user leaves it blank, says to keep the original name, or has no preference, omit `title` and let the MCP use the original HTML, ZIP, or directory name. For updates, an omitted title preserves the existing work title.
+7. Determine `new` or `update`:
    - Treat a valid local `.htmlshare.json` as a strong update binding.
    - Prefer an explicit `siteId` or stable share URL when supplied.
    - Use `find_sites` when the target needs lookup.
    - If the target is missing or ambiguous, ask. Never infer the target from title alone.
-7. Ask for one access policy if it is not already explicit:
+8. Ask for one access policy if it is not already explicit:
    - `collaborators`: only named people and departments.
    - `company_link`: any company employee with the link.
    - `external_link`: password-protected external link, default validity 90 days. The password must be exactly four ASCII letters or digits; generate one when the user does not provide it.
-8. For collaborators, call `resolve_contacts`. Preserve the returned stable IDs. If a name is ambiguous or absent, show candidates and ask; do not guess. Groups are not supported in this version.
-9. Call `prepare_publish` with the resolved source, operation, entry, target, and permission data.
-10. Show the returned `confirmation` in a compact summary: title, new/update, target site, entry file, package size, access policy, collaborators, and external password/expiry when applicable.
-11. Stop and ask for explicit confirmation. Earlier requests such as “帮我发布” do not replace this final confirmation after the summary.
-12. Only after the user explicitly confirms, call `execute_publish` with the returned `planId` and `confirmed: true`.
-13. Return the stable share URL, site ID, version number, permission summary, and external password/expiry when applicable. Mention that a local manifest was written for precise future updates. Directories use `.htmlshare.json`; single HTML and ZIP sources use a source-specific `name.htmlshare.json` sidecar so several works can coexist in one folder.
+9. For collaborators, call `resolve_contacts`. Preserve the returned stable IDs. If a name is ambiguous or absent, show candidates and ask; do not guess. Groups are not supported in this version.
+10. Call `prepare_publish` with the resolved source, operation, entry, target, and permission data.
+11. Show the returned `confirmation` in a compact summary: file name/title, new/update, target site, entry file, package size, access policy, collaborators, and external password/expiry when applicable.
+12. Stop and ask for explicit confirmation. Earlier requests such as “帮我发布” do not replace this final confirmation after the summary.
+13. Only after the user explicitly confirms, call `execute_publish` with the returned `planId` and `confirmed: true`.
+14. Return the stable share URL, site ID, version number, permission summary, and external password/expiry when applicable. Mention that a local manifest was written for precise future updates. Directories use `.htmlshare.json`; single HTML and ZIP sources use a source-specific `name.htmlshare.json` sidecar so several works can coexist in one folder.
 
 ## Safety Rules
 
