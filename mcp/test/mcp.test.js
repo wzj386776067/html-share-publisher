@@ -19,6 +19,7 @@ test('exposes the complete safe publish tool set over MCP stdio', async () => {
   await client.connect(transport);
   try {
     const result = await client.listTools();
+    assert.match(client.getInstructions(), /Call execute_publish only.*explicit confirmation/);
     assert.deepEqual(result.tools.map((tool) => tool.name), [
       'auth_status',
       'start_login',

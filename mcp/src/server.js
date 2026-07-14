@@ -14,7 +14,21 @@ import {
   startLogin
 } from './service.js';
 
-const server = new McpServer({ name: 'html-share-workbench', version: '0.1.0' });
+const server = new McpServer(
+  { name: 'html-share-workbench', version: '0.2.0' },
+  {
+    instructions: [
+      'Publish or update local HTML through one safe workflow:',
+      '1. Check auth_status and use start_login when DingTalk authorization is required.',
+      '2. Run precheck_package and never guess an entry file when several HTML files exist.',
+      '3. Resolve new versus update exactly; use find_sites and never guess an ambiguous update target.',
+      '4. Select one access policy. Resolve named users or departments with resolve_contacts.',
+      '5. Call prepare_publish and show its complete confirmation summary to the user.',
+      '6. Call execute_publish only in a later turn after explicit confirmation.',
+      'An update creates a version and keeps the stable link. Never expose delegated tokens.'
+    ].join('\n')
+  }
+);
 
 register('auth_status', {
   title: '检查 HTML 分享授权',

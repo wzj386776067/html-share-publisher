@@ -21,6 +21,8 @@ jobs:
         working-directory: mcp
       - run: npm test
         working-directory: mcp
+      - name: Test client adapters
+        run: node --test installer/configure-clients.test.mjs
       - name: Build release assets
         run: bash scripts/build-release.sh "$GITHUB_REF_NAME"
       - name: Test release installation
@@ -31,7 +33,7 @@ jobs:
             bash "$RUNNER_TEMP/release/html-share-publisher/install.sh" \
               --version "$GITHUB_REF_NAME" \
               --install-root "$RUNNER_TEMP/install" \
-              --skip-register \
+              --client generic \
               --skip-api-check
       - name: Publish GitHub Release
         env:

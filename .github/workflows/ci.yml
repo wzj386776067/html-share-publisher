@@ -24,6 +24,8 @@ jobs:
         working-directory: mcp
       - run: npm run verify
         working-directory: mcp
+      - name: Test client adapters
+        run: node --test installer/configure-clients.test.mjs
       - name: Build release asset
         run: bash scripts/build-release.sh v0.0.0-ci
       - name: Test clean installation
@@ -34,7 +36,28 @@ jobs:
             bash "$RUNNER_TEMP/release/html-share-publisher/install.sh" \
               --version v0.0.0-ci \
               --install-root "$RUNNER_TEMP/install" \
-              --skip-register \
+              --client generic \
               --skip-api-check
-          test -f "$RUNNER_TEMP/codex-home/skills/html-share-publisher/SKILL.md"
           test -f "$RUNNER_TEMP/install/current/mcp/src/server.js"
+          test -f "$RUNNER_TEMP/install/mcp-config.json"
+
+  windows-install:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Test client adapters
+        run: node --test installer/configure-clients.test.mjs
+      - name: Test PowerShell installation
+        shell: pwsh
+        run: |
+          ./install.ps1 `
+            -Version v0.0.0-ci `
+            -PayloadDir $PWD.Path `
+            -InstallRoot "$env:RUNNER_TEMP/install" `
+            -Client generic `
+            -SkipApiCheck
+          if (-not (Test-Path "$env:RUNNER_TEMP/install/releases/v0.0.0-ci/mcp/src/server.js")) { exit 1 }
+          if (-not (Test-Path "$env:RUNNER_TEMP/install/mcp-config.json")) { exit 1 }

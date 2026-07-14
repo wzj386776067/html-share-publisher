@@ -6,6 +6,7 @@ API_BASE="https://share.bi-cheng.cn"
 INSTALL_ROOT="${HOME}/.local/share/html-share-publisher"
 VERSION=""
 PAYLOAD_DIR=""
+CLIENTS="auto"
 SKIP_REGISTER=0
 SKIP_API_CHECK=0
 
@@ -14,11 +15,12 @@ usage() {
 Usage: install.sh [options]
 
 Options:
-  --version VERSION       Install a release tag such as v0.1.0 (default: latest)
+  --version VERSION       Install a release tag such as v0.2.0 (default: latest)
   --api-base URL          Workbench API origin
   --install-root PATH     MCP installation root
+  --client CLIENTS        auto, all, codex, workbuddy, trae, codebuddy, or generic
   --payload-dir PATH      Install an already extracted release (used by CI)
-  --skip-register         Do not change Codex MCP configuration
+  --skip-register         Install files without changing any AI client configuration
   --skip-api-check        Do not check the workbench health endpoint
   -h, --help              Show this help
 EOF
@@ -36,6 +38,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --install-root)
       INSTALL_ROOT="${2:-}"
+      shift 2
+      ;;
+    --client)
+      CLIENTS="${2:-}"
       shift 2
       ;;
     --payload-dir)
@@ -118,7 +124,7 @@ if [[ -z "$PAYLOAD_DIR" ]]; then
   PAYLOAD_DIR="$temp_dir/release/html-share-publisher"
 fi
 
-if [[ ! -f "$PAYLOAD_DIR/mcp/package.json" || ! -f "$PAYLOAD_DIR/skills/html-share-publisher/SKILL.md" ]]; then
+if [[ ! -f "$PAYLOAD_DIR/mcp/package.json" || ! -f "$PAYLOAD_DIR/skills/html-share-publisher/SKILL.md" || ! -f "$PAYLOAD_DIR/installer/configure-clients.mjs" ]]; then
   echo "Invalid release payload: $PAYLOAD_DIR" >&2
   exit 1
 fi
@@ -135,10 +141,6 @@ if [[ "$node_major" -lt 22 ]]; then
   echo "Node.js 22 or newer is required; found $(node --version)." >&2
   exit 1
 fi
-if [[ "$SKIP_REGISTER" -eq 0 ]]; then
-  require_command codex
-fi
-
 API_BASE="${API_BASE%/}"
 mkdir -p "$INSTALL_ROOT/releases"
 release_dir="$INSTALL_ROOT/releases/$VERSION"
@@ -147,6 +149,7 @@ rm -rf "$release_temp"
 mkdir -p "$release_temp"
 cp -R "$PAYLOAD_DIR/mcp" "$release_temp/mcp"
 cp -R "$PAYLOAD_DIR/skills/html-share-publisher" "$release_temp/skill"
+cp -R "$PAYLOAD_DIR/installer" "$release_temp/installer"
 
 echo "Installing MCP dependencies..."
 npm ci --omit=dev --prefix "$release_temp/mcp"
@@ -165,24 +168,16 @@ rm -f "$current_temp"
 ln -s "$release_dir" "$current_temp"
 mv -f "$current_temp" "$current_link"
 
-codex_home="${CODEX_HOME:-$HOME/.codex}"
-skill_parent="$codex_home/skills"
-skill_target="$skill_parent/html-share-publisher"
-skill_temp="$skill_parent/.html-share-publisher-install-$$"
-mkdir -p "$skill_parent"
-rm -rf "$skill_temp"
-cp -R "$release_dir/skill" "$skill_temp"
-rm -rf "$skill_target"
-mv "$skill_temp" "$skill_target"
-
 if [[ "$SKIP_REGISTER" -eq 0 ]]; then
-  if codex mcp get html-share >/dev/null 2>&1; then
-    codex mcp remove html-share >/dev/null
-  fi
+  echo "Configuring detected AI clients..."
   node_path="$(command -v node)"
-  codex mcp add html-share \
-    --env "HTML_SHARE_API_BASE=$API_BASE" \
-    -- "$node_path" "$current_link/mcp/src/server.js" >/dev/null
+  node "$current_link/installer/configure-clients.mjs" \
+    --client "$CLIENTS" \
+    --install-root "$INSTALL_ROOT" \
+    --skill-source "$current_link/skill" \
+    --server-path "$current_link/mcp/src/server.js" \
+    --node-path "$node_path" \
+    --api-base "$API_BASE"
 fi
 
 if [[ "$SKIP_API_CHECK" -eq 0 ]]; then
@@ -195,8 +190,8 @@ fi
 
 echo
 echo "HTML Share Publisher $VERSION installed successfully."
-echo "Skill: $skill_target"
 echo "MCP:   $current_link/mcp/src/server.js"
+echo "Clients: $CLIENTS"
 if [[ "$SKIP_REGISTER" -eq 0 ]]; then
-  echo "Restart Codex or open a new task, then invoke \$html-share-publisher."
+  echo "Restart the current AI client or open a new task, then ask it to publish an HTML site."
 fi
