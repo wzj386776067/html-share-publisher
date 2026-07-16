@@ -2,6 +2,8 @@
 
 碧橙 HTML 分享工作台的通用 AI 发布客户端。仓库只包含本地 MCP、客户端适配、Skill 和安装工具，不包含工作台后端、钉钉应用密钥或用户授权令牌。
 
+> **重要：本仓库不是一个可独立使用的 Skill，而是 Codex Plugin + 本地 MCP + Skill 组合包。只复制 `skills/html-share-publisher` 属于不完整安装。**
+
 安装后可以在支持 MCP 的 AI 客户端中完成：
 
 - 钉钉身份授权；
@@ -10,19 +12,30 @@
 - 设置仅协作者、公司内部链接或 4 位字母数字密码外链；
 - 最终确认后发布，并保留稳定链接和本地更新绑定。
 
-## 对 AI 说一句话安装
+## 对 Codex 说一句话安装
 
-把下面这句话发给 Codex、WorkBuddy、TRAE 或其他具备本地终端能力的 AI：
+用户只需要把下面一句话发给具备本地终端能力的 Codex：
 
-> 请直接安装并配置“HTML 分享发布”工具，不要只告诉我步骤。仓库地址：https://github.com/wzj386776067/html-share-publisher 。请先阅读仓库中的 INSTALL_FOR_AI.md，自动识别我正在使用的 AI 客户端和操作系统，完成 MCP、可用的 Skill、自检和注册，完成后告诉我结果。
+> 安装并启用这个 Codex 插件：https://github.com/wzj386776067/html-share-publisher
 
-AI 应按照 [AI 安装约定](INSTALL_FOR_AI.md) 自动执行，用户不需要理解 Bash 或 PowerShell。安装过程中若客户端申请网络访问或写入用户配置目录，只需确认授权。
+仓库已经声明为 Codex marketplace。Codex 应按照 [AI 安装约定](INSTALL_FOR_AI.md) 自动添加 marketplace、安装 `html-share-publisher` Plugin，并一次性获得本地 MCP 和 Skill。用户不需要手工执行 `codex mcp add`、编辑配置或安装 npm 依赖。安装过程中若客户端申请网络访问或写入用户配置目录，只需确认授权。
+
+如果用户仍然说“安装这个 Skill”，AI 也必须将其理解为安装完整产品，不能只复制 `skills/html-share-publisher`。
+
+Codex 原生安装等价命令如下，仅用于排查或人工兜底：
+
+```bash
+codex plugin marketplace add wzj386776067/html-share-publisher --ref main
+codex plugin add html-share-publisher@bicheng-html-share
+```
+
+WorkBuddy、TRAE、CodeBuddy 和其他客户端继续使用下方通用安装器。
 
 ## 支持范围
 
 | 客户端 | MCP | Skill/流程增强 | 配置方式 |
 | --- | --- | --- | --- |
-| Codex | 支持 | 安装 Skill | `codex mcp` |
+| Codex | 支持 | Plugin 自动安装 | Codex marketplace |
 | WorkBuddy | 支持 | MCP 自带完整流程说明 | `~/.workbuddy/mcp.json` |
 | TRAE / TRAE SOLO | 支持 | 安装 Skill | TRAE 全局 MCP 与 Skill 目录 |
 | CodeBuddy | 支持 | 安装 Skill | `~/.codebuddy` |
@@ -30,7 +43,7 @@ AI 应按照 [AI 安装约定](INSTALL_FOR_AI.md) 自动执行，用户不需要
 
 不支持运行本地 MCP 的纯云端对话工具无法直接使用，这是客户端能力边界。
 
-## 手动安装备用
+## 通用安装器备用
 
 环境要求：Node.js 22+ 和 npm。Codex、WorkBuddy、TRAE、CodeBuddy 均为可选客户端。
 
@@ -55,11 +68,18 @@ irm https://raw.githubusercontent.com/wzj386776067/html-share-publisher/main/ins
 
 安装器默认自动识别本机已有客户端，注册名为 `html-share` 的本地 MCP，并在客户端支持标准 Skill 目录时安装 Skill。安装完成后重启当前客户端，或新建一个本地任务。
 
-## 自动更新
+## 更新
 
-从 `v0.3.0` 开始，所有客户端都固定连接本机 `launcher.mjs`，不再绑定某个版本目录。launcher 每 24 小时最多检查一次 GitHub Release；发现新版本后会校验 SHA-256、原子切换 MCP，并刷新客户端 Skill。检查失败或升级失败时继续运行原版本，不阻断发布。
+Codex Plugin 通过 marketplace 更新：
 
-已经安装 `v0.2.x` 的用户需要执行一次升级安装以迁移到 launcher。完成这次迁移后，后续版本无需重复下载安装。设置 `HTML_SHARE_AUTO_UPDATE=false` 可以关闭自动更新。
+```bash
+codex plugin marketplace upgrade bicheng-html-share
+codex plugin add html-share-publisher@bicheng-html-share
+```
+
+使用通用安装器的客户端继续通过本机 `launcher.mjs` 自动更新。launcher 每 24 小时最多检查一次 GitHub Release；发现新版本后会校验 SHA-256、原子切换 MCP，并刷新客户端 Skill。检查失败或升级失败时继续运行原版本，不阻断发布。设置 `HTML_SHARE_AUTO_UPDATE=false` 可以关闭自动更新。
+
+已经安装 `v0.2.x` 或仅复制过 Skill 的 Codex 用户，重新发送上方一句话安装指令即可迁移到原生 Plugin。
 
 ## 测试
 
@@ -88,12 +108,14 @@ curl -fsSL https://raw.githubusercontent.com/wzj386776067/html-share-publisher/m
 
 ## 卸载
 
-先让当前 AI 撤销 HTML 分享授权，再移除对应客户端中的 `html-share` MCP 配置和安装目录。Codex 可以执行：
+先让当前 AI 撤销 HTML 分享授权。Codex Plugin 可以执行：
 
 ```bash
-codex mcp remove html-share
-rm -rf ~/.local/share/html-share-publisher ~/.codex/skills/html-share-publisher
+codex plugin remove html-share-publisher@bicheng-html-share
+codex plugin marketplace remove bicheng-html-share
 ```
+
+使用通用安装器的旧版 Codex 才需要执行 `codex mcp remove html-share` 并删除对应安装目录。
 
 ## 安全边界
 

@@ -20,10 +20,16 @@ jobs:
           cache-dependency-path: mcp/package-lock.json
       - run: npm ci
         working-directory: mcp
+      - run: npm run build:plugin
+        working-directory: mcp
+      - name: Verify generated Codex plugin is current
+        run: git diff --exit-code -- plugins/html-share-publisher
       - run: npm test
         working-directory: mcp
       - run: npm run verify
         working-directory: mcp
+      - name: Verify bundled Codex plugin MCP
+        run: node plugins/html-share-publisher/scripts/verify.cjs plugins/html-share-publisher/mcp/server.mjs
       - name: Test installer and launcher
         run: node --test installer/*.test.mjs
       - name: Build release asset

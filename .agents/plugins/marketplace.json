@@ -1,0 +1,20 @@
+{
+  "name": "bicheng-html-share",
+  "interface": {
+    "displayName": "碧橙 HTML 分享"
+  },
+  "plugins": [
+    {
+      "name": "html-share-publisher",
+      "source": {
+        "source": "local",
+        "path": "./plugins/html-share-publisher"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_USE"
+      },
+      "category": "Productivity"
+    }
+  ]
+}
