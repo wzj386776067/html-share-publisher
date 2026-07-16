@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "html-share": {
+      "title": "HTML 分享发布",
+      "description": "预检、发布和更新本地 HTML 作品，并管理访问权限。",
+      "cwd": ".",
+      "command": "node",
+      "args": ["./mcp/server.mjs"],
+      "env": {
+        "HTML_SHARE_API_BASE": "https://share.bi-cheng.cn"
+      }
+    }
+  }
+}
