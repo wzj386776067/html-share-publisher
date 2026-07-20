@@ -11,7 +11,7 @@
 - `prepare_publish`：校验所有选择，创建 15 分钟有效的确认计划，不执行远程写入。
 - `execute_publish`：执行一个已经确认的计划，发布新版本并写入与源文件对应的本地清单。
 
-所有工具都返回结构化 JSON。返回的 `status` 为 `error` 时，使用 `code`、`message` 和 `recovery` 引导下一步交互。不能绕过 `AUTH_REQUIRED`、`ENTRY_REQUIRED`、`UPDATE_TARGET_REQUIRED`、`CONFIRMATION_REQUIRED`、`SOURCE_CHANGED` 或任何权限错误。
+所有工具都返回结构化 JSON。返回的 `status` 为 `error` 时，使用 `code`、`message` 和 `recovery` 引导下一步交互。不能绕过 `AUTH_REQUIRED`、`ENTRY_REQUIRED`、`TITLE_DECISION_REQUIRED`、`ACCESS_POLICY_CONFIRMATION_REQUIRED`、`UPDATE_TARGET_REQUIRED`、`CONFIRMATION_REQUIRED`、`SOURCE_CHANGED` 或任何权限错误。
 
 传给 `prepare_publish` 的 `permissions` 必须使用 `resolve_contacts` 返回的原始对象：
 
@@ -23,6 +23,12 @@
 }
 ```
 
-三种分享策略分别是 `collaborators`、`company_link` 和 `external_link`。外部访问必须包含密码和未来的失效时间。密码必须恰好为 4 位 ASCII 字母或数字；省略时由服务端生成合规密码和 90 天有效期。
+三种分享策略分别是 `collaborators`、`company_link` 和 `external_link`。`accessPolicy` 只能来自用户在当前发布对话中的明确选择，并同时传入 `accessPolicyConfirmed: true`。外部访问必须包含密码和未来的失效时间。密码必须恰好为 4 位 ASCII 字母或数字；省略时由服务端生成合规密码和 90 天有效期。
 
-`precheck_package` 会根据所选 HTML 文件、ZIP 包或目录名称返回 `suggestedTitle`。`prepare_publish.title` 为可选参数：新作品省略时使用这个原始名称，更新已有作品时省略则保留当前线上标题。标题也是新生成分享链接中的可读名称；真正用于精准更新的标识始终是不可变的 `siteId`。
+`precheck_package` 会根据所选 HTML 文件、ZIP 包或目录名称返回 `suggestedTitle`。`prepare_publish.titleDecision` 必须是以下一种：
+
+- `custom`：用户输入自定义名称，同时必须传 `title`。
+- `use_suggested`：用户明确同意使用预检返回的建议名称。
+- `keep_existing`：仅更新已有作品时使用，表示用户明确保留线上名称。
+
+标题也是新生成分享链接中的可读名称；真正用于精准更新的标识始终是不可变的 `siteId`。

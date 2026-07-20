@@ -10,17 +10,20 @@ const supportedClients = ['codex', 'workbuddy', 'trae', 'codebuddy', 'generic'];
 export function configureClients(options) {
   const context = normalizeOptions(options);
   const selectedClients = selectClients(context.client, context);
-  const serverConfig = {
+  const serverConfigFor = (clientName) => ({
     command: context.nodePath,
     args: [context.serverPath],
-    env: { HTML_SHARE_API_BASE: context.apiBase }
-  };
+    env: {
+      HTML_SHARE_API_BASE: context.apiBase,
+      HTML_SHARE_CLIENT_NAME: clientName
+    }
+  });
   const configured = [];
   const skills = [];
   const warnings = [];
 
   const genericPath = path.join(context.installRoot, 'mcp-config.json');
-  writeMcpConfig(genericPath, serverConfig);
+  writeMcpConfig(genericPath, serverConfigFor('Generic MCP client'));
   configured.push({ client: 'generic', path: genericPath });
 
   if (selectedClients.includes('codex')) {
@@ -30,21 +33,21 @@ export function configureClients(options) {
     if (!context.skipCommandRegistration) {
       const codex = findExecutable('codex', context.env, context.platform);
       if (!codex) throw new Error('Codex was selected but the codex command is not available.');
-      registerCodex(codex, serverConfig, context.platform);
+      registerCodex(codex, serverConfigFor('Codex'), context.platform);
       configured.push({ client: 'codex', path: 'codex mcp: html-share' });
     }
   }
 
   if (selectedClients.includes('workbuddy')) {
     const configPath = path.join(context.home, '.workbuddy', 'mcp.json');
-    writeMcpConfig(configPath, serverConfig);
+    writeMcpConfig(configPath, serverConfigFor('WorkBuddy'));
     configured.push({ client: 'workbuddy', path: configPath });
     warnings.push('WorkBuddy uses MCP self-instructions; restart WorkBuddy after installation.');
   }
 
   if (selectedClients.includes('trae')) {
     for (const configPath of traeConfigPaths(context)) {
-      writeMcpConfig(configPath, serverConfig);
+      writeMcpConfig(configPath, serverConfigFor('TRAE'));
       configured.push({ client: 'trae', path: configPath });
     }
     for (const skillPath of traeSkillPaths(context)) {
@@ -57,7 +60,7 @@ export function configureClients(options) {
     const configRoot = context.env.CODEBUDDY_CONFIG_DIR || path.join(context.home, '.codebuddy');
     const configPath = path.join(configRoot, '.mcp.json');
     const skillPath = path.join(configRoot, 'skills', 'html-share-publisher');
-    writeMcpConfig(configPath, serverConfig);
+    writeMcpConfig(configPath, serverConfigFor('CodeBuddy'));
     installSkill(context.skillSource, skillPath);
     configured.push({ client: 'codebuddy', path: configPath });
     skills.push({ client: 'codebuddy', path: skillPath });
@@ -202,6 +205,7 @@ function registerCodex(codexPath, serverConfig, platform) {
   run([
     'mcp', 'add', 'html-share',
     '--env', `HTML_SHARE_API_BASE=${serverConfig.env.HTML_SHARE_API_BASE}`,
+    '--env', `HTML_SHARE_CLIENT_NAME=${serverConfig.env.HTML_SHARE_CLIENT_NAME}`,
     '--', serverConfig.command, ...serverConfig.args
   ]);
 }

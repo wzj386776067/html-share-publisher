@@ -1,5 +1,5 @@
 import { randomInt, randomUUID } from 'node:crypto';
-import { apiBaseUrl } from './config.js';
+import { apiBaseUrl, clientName } from './config.js';
 import { apiRequest, uploadZip } from './api.js';
 import { inspectSource, packageSource, readLocalManifest } from './package-source.js';
 import {
@@ -18,7 +18,7 @@ import {
 const PLAN_MAX_AGE_MS = 15 * 60 * 1000;
 const EXTERNAL_PASSWORD_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
 
-export async function startLogin({ clientName = 'HTML 分享发布助手' } = {}) {
+export async function startLogin() {
   const current = await checkStoredAuthorization();
   if (current.status === 'authorized') return current;
 
@@ -186,9 +186,16 @@ export async function preparePublish(input) {
     site = await findManageableSite(targetId, authorization.user);
   }
 
-  const title = String(input.title || site?.title || source.defaultTitle || '').trim();
+  const title = resolvePublishTitle({
+    operation,
+    titleDecision: input.titleDecision,
+    title: input.title,
+    suggestedTitle: source.defaultTitle,
+    existingTitle: site?.title
+  });
 
   const accessPolicy = input.accessPolicy;
+  validateAccessPolicyConfirmation(input.accessPolicyConfirmed);
   const permissions = accessPolicy === 'collaborators'
     ? (input.permissions ?? site?.permissions ?? [])
     : [];
@@ -209,10 +216,13 @@ export async function preparePublish(input) {
     operation,
     siteId: site?.id || '',
     title,
+    titleDecision: input.titleDecision,
     description: String(input.description ?? site?.description ?? '').trim(),
     entryFile: precheck.entryFile,
     versionNote: String(input.versionNote || '').trim(),
     accessPolicy,
+    accessPolicyDecision: accessPolicy,
+    accessPolicyConfirmed: true,
     permissions,
     externalPassword,
     externalExpiresAt,
@@ -291,6 +301,7 @@ export async function executePublish({ planId, confirmed }) {
 }
 
 async function createSite(plan, zipPath) {
+  const publishContext = publishContextForPlan(plan);
   const metadata = {
     title: plan.title,
     description: plan.description,
@@ -303,14 +314,17 @@ async function createSite(plan, zipPath) {
     externalExpiresAt: plan.accessPolicy === 'external_link' ? plan.externalExpiresAt : undefined
   };
   return (await uploadZip('/api/sites', zipPath, {
-    'x-site-metadata': encodeURIComponent(JSON.stringify(metadata))
+    'x-site-metadata': encodeURIComponent(JSON.stringify(metadata)),
+    'x-publish-context': encodeURIComponent(JSON.stringify(publishContext))
   })).data;
 }
 
 async function updateSite(plan, zipPath) {
+  const publishContext = publishContextForPlan(plan);
   const current = (await apiRequest(`/api/sites/${encodeURIComponent(plan.siteId)}`)).data;
   await uploadZip(`/api/sites/${encodeURIComponent(plan.siteId)}/versions`, zipPath, {
     'x-version-entry-file': encodeURIComponent(plan.entryFile),
+    'x-publish-context': encodeURIComponent(JSON.stringify(publishContext)),
     ...(plan.versionNote ? { 'x-version-note': encodeURIComponent(plan.versionNote) } : {})
   });
   return (await apiRequest(`/api/sites/${encodeURIComponent(plan.siteId)}`, {
@@ -322,9 +336,19 @@ async function updateSite(plan, zipPath) {
       accessPolicy: plan.accessPolicy,
       permissions: plan.permissions,
       externalPassword: plan.accessPolicy === 'external_link' ? plan.externalPassword : undefined,
-      externalExpiresAt: plan.accessPolicy === 'external_link' ? plan.externalExpiresAt : undefined
+      externalExpiresAt: plan.accessPolicy === 'external_link' ? plan.externalExpiresAt : undefined,
+      publishContext
     }
   })).data;
+}
+
+function publishContextForPlan(plan) {
+  return {
+    titleDecision: plan.titleDecision,
+    accessPolicyDecision: plan.accessPolicyDecision,
+    accessPolicyConfirmed: plan.accessPolicyConfirmed === true,
+    chatConfirmed: true
+  };
 }
 
 async function findManageableSite(siteId, user) {
@@ -366,17 +390,59 @@ async function checkStoredAuthorization() {
 function confirmationSummary(plan, site) {
   return {
     title: plan.title,
+    titleDecision: plan.titleDecision,
     operation: plan.operation === 'new' ? '新建作品' : '更新已有作品',
     updateTarget: site ? { siteId: site.id, title: site.title, currentVersion: site.currentVersion?.versionNumber } : null,
     entryFile: plan.entryFile,
     package: { fileCount: plan.precheck.fileCount, totalBytes: plan.precheck.totalBytes },
     accessPolicy: plan.accessPolicy,
+    accessPolicyConfirmed: plan.accessPolicyConfirmed,
     collaborators: plan.permissions.map((permission) => ({ type: permission.scopeType, id: permission.scopeId, name: permission.scopeName })),
     externalAccess: plan.accessPolicy === 'external_link'
       ? { password: plan.externalPassword, expiresAt: plan.externalExpiresAt }
       : null,
     stableLinkWillRemain: plan.operation === 'update'
   };
+}
+
+export function resolvePublishTitle({ operation, titleDecision, title, suggestedTitle, existingTitle }) {
+  if (!titleDecision) {
+    throw toolError(
+      'TITLE_DECISION_REQUIRED',
+      '发布前必须让用户明确决定作品名称。',
+      '请询问用户是自定义名称、使用预检建议名称，还是在更新时保留线上名称。'
+    );
+  }
+  if (titleDecision === 'custom') {
+    const customTitle = String(title || '').trim();
+    if (!customTitle) {
+      throw toolError('CUSTOM_TITLE_REQUIRED', '用户选择了自定义作品名称，但没有提供名称。', '请让用户输入作品名称。');
+    }
+    return customTitle;
+  }
+  if (titleDecision === 'use_suggested') {
+    const normalizedSuggestedTitle = String(suggestedTitle || '').trim();
+    if (!normalizedSuggestedTitle) throw toolError('SUGGESTED_TITLE_UNAVAILABLE', '当前源文件没有可用的建议名称。');
+    return normalizedSuggestedTitle;
+  }
+  if (titleDecision === 'keep_existing') {
+    const normalizedExistingTitle = String(existingTitle || '').trim();
+    if (operation !== 'update' || !normalizedExistingTitle) {
+      throw toolError('INVALID_TITLE_DECISION', '只有更新已有作品时才能保留线上名称。');
+    }
+    return normalizedExistingTitle;
+  }
+  throw toolError('INVALID_TITLE_DECISION', '作品名称决策无效。');
+}
+
+export function validateAccessPolicyConfirmation(confirmed) {
+  if (confirmed !== true) {
+    throw toolError(
+      'ACCESS_POLICY_CONFIRMATION_REQUIRED',
+      '发布前必须让用户明确选择分享范围。',
+      '请让用户明确选择仅协作者、公司内部链接或外部密码链接。'
+    );
+  }
 }
 
 function siteSummary(site) {

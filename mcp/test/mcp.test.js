@@ -9,7 +9,12 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 
 import { inspectSource, packageSource, readLocalManifest } from '../src/package-source.js';
-import { generateExternalPassword, normalizeSiteId } from '../src/service.js';
+import {
+  generateExternalPassword,
+  normalizeSiteId,
+  resolvePublishTitle,
+  validateAccessPolicyConfirmation
+} from '../src/service.js';
 
 test('exposes the complete safe publish tool set over MCP stdio', async () => {
   const transport = new StdioClientTransport({
@@ -21,6 +26,8 @@ test('exposes the complete safe publish tool set over MCP stdio', async () => {
   try {
     const result = await client.listTools();
     assert.match(client.getInstructions(), /只有用户在后续明确确认后，才能调用 execute_publish/);
+    assert.match(client.getInstructions(), /必须询问用户使用建议名称还是自定义名称/);
+    assert.match(client.getInstructions(), /必须让用户明确选择/);
     assert.deepEqual(result.tools.map((tool) => tool.name), [
       'auth_status',
       'start_login',
@@ -34,7 +41,9 @@ test('exposes the complete safe publish tool set over MCP stdio', async () => {
     const execute = result.tools.find((tool) => tool.name === 'execute_publish');
     assert.equal(execute.inputSchema.properties.confirmed.const, true);
     const prepare = result.tools.find((tool) => tool.name === 'prepare_publish');
-    assert.match(prepare.inputSchema.properties.title.description, /源文件、ZIP 或目录原名/);
+    assert.ok(prepare.inputSchema.required.includes('titleDecision'));
+    assert.ok(prepare.inputSchema.required.includes('accessPolicyConfirmed'));
+    assert.equal(prepare.inputSchema.properties.accessPolicyConfirmed.const, true);
     const passwordSchema = prepare.inputSchema.properties.externalPassword;
     assert.equal(passwordSchema.minLength, 4);
     assert.equal(passwordSchema.maxLength, 4);
@@ -42,6 +51,29 @@ test('exposes the complete safe publish tool set over MCP stdio', async () => {
   } finally {
     await client.close();
   }
+});
+
+test('requires explicit title and access-policy decisions before preparing a publish', () => {
+  assert.throws(
+    () => resolvePublishTitle({ operation: 'new', suggestedTitle: '摄影网站' }),
+    (error) => error.code === 'TITLE_DECISION_REQUIRED'
+  );
+  assert.throws(
+    () => resolvePublishTitle({ operation: 'new', titleDecision: 'custom', title: '', suggestedTitle: '摄影网站' }),
+    (error) => error.code === 'CUSTOM_TITLE_REQUIRED'
+  );
+  assert.equal(
+    resolvePublishTitle({ operation: 'new', titleDecision: 'use_suggested', suggestedTitle: '摄影网站' }),
+    '摄影网站'
+  );
+  assert.equal(
+    resolvePublishTitle({ operation: 'update', titleDecision: 'keep_existing', existingTitle: '线上摄影网站' }),
+    '线上摄影网站'
+  );
+  assert.throws(
+    () => validateAccessPolicyConfirmation(false),
+    (error) => error.code === 'ACCESS_POLICY_CONFIRMATION_REQUIRED'
+  );
 });
 
 test('generates four-character alphanumeric external passwords', () => {

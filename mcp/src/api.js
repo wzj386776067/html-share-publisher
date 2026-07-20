@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 
-import { apiBaseUrl } from './config.js';
+import { apiBaseUrl, clientName } from './config.js';
 import { readCredentials } from './state.js';
 
 export class ApiError extends Error {
@@ -14,7 +14,10 @@ export class ApiError extends Error {
 }
 
 export async function apiRequest(pathname, { method = 'GET', body, headers = {}, authenticated = true } = {}) {
-  const requestHeaders = { ...headers };
+  const requestHeaders = {
+    'x-html-share-client-name': clientName,
+    ...headers
+  };
   if (authenticated) {
     const credentials = readCredentials();
     if (!credentials?.accessToken) {
