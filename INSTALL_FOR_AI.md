@@ -51,7 +51,7 @@ When the current client is known, pass it explicitly:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/wzj386776067/html-share-publisher/main/install.sh \
-  | bash -s -- --client codex
+  | bash -s -- --client workbuddy
 ```
 
 Supported values are `auto`, `all`, `codex`, `workbuddy`, `trae`, `codebuddy`, and `generic`.
