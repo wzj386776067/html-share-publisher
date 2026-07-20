@@ -21107,10 +21107,15 @@ import { randomInt, randomUUID } from "node:crypto";
 import os from "node:os";
 import path from "node:path";
 var apiBaseUrl = String(process.env.HTML_SHARE_API_BASE || "https://share.bi-cheng.cn").replace(/\/+$/, "");
+var clientName = normalizeClientName(process.env.HTML_SHARE_CLIENT_NAME);
 var stateDir = process.env.HTML_SHARE_CONFIG_DIR ? path.resolve(process.env.HTML_SHARE_CONFIG_DIR) : path.join(process.env.XDG_CONFIG_HOME || path.join(os.homedir(), ".config"), "html-share");
 var credentialsPath = path.join(stateDir, "credentials.json");
 var pendingAuthPath = path.join(stateDir, "pending-auth.json");
 var plansDir = path.join(stateDir, "plans");
+function normalizeClientName(value) {
+  const normalized = String(value || "Generic MCP client").replace(/[\u0000-\u001f\u007f]/g, "").trim();
+  return normalized.slice(0, 80) || "Generic MCP client";
+}
 
 // src/api.js
 import fs2 from "node:fs";
@@ -21182,7 +21187,10 @@ var ApiError = class extends Error {
   }
 };
 async function apiRequest(pathname, { method = "GET", body, headers = {}, authenticated = true } = {}) {
-  const requestHeaders = { ...headers };
+  const requestHeaders = {
+    "x-html-share-client-name": clientName,
+    ...headers
+  };
   if (authenticated) {
     const credentials = readCredentials();
     if (!credentials?.accessToken) {
@@ -21383,7 +21391,7 @@ function inputError(message) {
 // src/service.js
 var PLAN_MAX_AGE_MS = 15 * 60 * 1e3;
 var EXTERNAL_PASSWORD_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-async function startLogin({ clientName = "HTML \u5206\u4EAB\u53D1\u5E03\u52A9\u624B" } = {}) {
+async function startLogin() {
   const current = await checkStoredAuthorization();
   if (current.status === "authorized") return current;
   const { data } = await apiRequest("/api/mcp/auth/requests", {
@@ -21530,8 +21538,15 @@ async function preparePublish(input) {
     }
     site = await findManageableSite(targetId, authorization.user);
   }
-  const title = String(input.title || site?.title || source.defaultTitle || "").trim();
+  const title = resolvePublishTitle({
+    operation,
+    titleDecision: input.titleDecision,
+    title: input.title,
+    suggestedTitle: source.defaultTitle,
+    existingTitle: site?.title
+  });
   const accessPolicy = input.accessPolicy;
+  validateAccessPolicyConfirmation(input.accessPolicyConfirmed);
   const permissions = accessPolicy === "collaborators" ? input.permissions ?? site?.permissions ?? [] : [];
   const externalPassword = accessPolicy === "external_link" ? normalizeExternalPassword(input.externalPassword) : "";
   const externalExpiresAt = accessPolicy === "external_link" ? normalizeFutureDate(input.externalExpiresAt || new Date(Date.now() + 90 * 24 * 60 * 60 * 1e3)) : "";
@@ -21546,10 +21561,13 @@ async function preparePublish(input) {
     operation,
     siteId: site?.id || "",
     title,
+    titleDecision: input.titleDecision,
     description: String(input.description ?? site?.description ?? "").trim(),
     entryFile: precheck.entryFile,
     versionNote: String(input.versionNote || "").trim(),
     accessPolicy,
+    accessPolicyDecision: accessPolicy,
+    accessPolicyConfirmed: true,
     permissions,
     externalPassword,
     externalExpiresAt,
@@ -21623,6 +21641,7 @@ async function executePublish({ planId, confirmed }) {
   }
 }
 async function createSite(plan, zipPath) {
+  const publishContext = publishContextForPlan(plan);
   const metadata = {
     title: plan.title,
     description: plan.description,
@@ -21635,13 +21654,16 @@ async function createSite(plan, zipPath) {
     externalExpiresAt: plan.accessPolicy === "external_link" ? plan.externalExpiresAt : void 0
   };
   return (await uploadZip("/api/sites", zipPath, {
-    "x-site-metadata": encodeURIComponent(JSON.stringify(metadata))
+    "x-site-metadata": encodeURIComponent(JSON.stringify(metadata)),
+    "x-publish-context": encodeURIComponent(JSON.stringify(publishContext))
   })).data;
 }
 async function updateSite(plan, zipPath) {
+  const publishContext = publishContextForPlan(plan);
   const current = (await apiRequest(`/api/sites/${encodeURIComponent(plan.siteId)}`)).data;
   await uploadZip(`/api/sites/${encodeURIComponent(plan.siteId)}/versions`, zipPath, {
     "x-version-entry-file": encodeURIComponent(plan.entryFile),
+    "x-publish-context": encodeURIComponent(JSON.stringify(publishContext)),
     ...plan.versionNote ? { "x-version-note": encodeURIComponent(plan.versionNote) } : {}
   });
   return (await apiRequest(`/api/sites/${encodeURIComponent(plan.siteId)}`, {
@@ -21653,9 +21675,18 @@ async function updateSite(plan, zipPath) {
       accessPolicy: plan.accessPolicy,
       permissions: plan.permissions,
       externalPassword: plan.accessPolicy === "external_link" ? plan.externalPassword : void 0,
-      externalExpiresAt: plan.accessPolicy === "external_link" ? plan.externalExpiresAt : void 0
+      externalExpiresAt: plan.accessPolicy === "external_link" ? plan.externalExpiresAt : void 0,
+      publishContext
     }
   })).data;
+}
+function publishContextForPlan(plan) {
+  return {
+    titleDecision: plan.titleDecision,
+    accessPolicyDecision: plan.accessPolicyDecision,
+    accessPolicyConfirmed: plan.accessPolicyConfirmed === true,
+    chatConfirmed: true
+  };
 }
 async function findManageableSite(siteId, user) {
   const { data } = await apiRequest("/api/sites");
@@ -21693,15 +21724,55 @@ async function checkStoredAuthorization() {
 function confirmationSummary(plan, site) {
   return {
     title: plan.title,
+    titleDecision: plan.titleDecision,
     operation: plan.operation === "new" ? "\u65B0\u5EFA\u4F5C\u54C1" : "\u66F4\u65B0\u5DF2\u6709\u4F5C\u54C1",
     updateTarget: site ? { siteId: site.id, title: site.title, currentVersion: site.currentVersion?.versionNumber } : null,
     entryFile: plan.entryFile,
     package: { fileCount: plan.precheck.fileCount, totalBytes: plan.precheck.totalBytes },
     accessPolicy: plan.accessPolicy,
+    accessPolicyConfirmed: plan.accessPolicyConfirmed,
     collaborators: plan.permissions.map((permission) => ({ type: permission.scopeType, id: permission.scopeId, name: permission.scopeName })),
     externalAccess: plan.accessPolicy === "external_link" ? { password: plan.externalPassword, expiresAt: plan.externalExpiresAt } : null,
     stableLinkWillRemain: plan.operation === "update"
   };
+}
+function resolvePublishTitle({ operation, titleDecision, title, suggestedTitle, existingTitle }) {
+  if (!titleDecision) {
+    throw toolError(
+      "TITLE_DECISION_REQUIRED",
+      "\u53D1\u5E03\u524D\u5FC5\u987B\u8BA9\u7528\u6237\u660E\u786E\u51B3\u5B9A\u4F5C\u54C1\u540D\u79F0\u3002",
+      "\u8BF7\u8BE2\u95EE\u7528\u6237\u662F\u81EA\u5B9A\u4E49\u540D\u79F0\u3001\u4F7F\u7528\u9884\u68C0\u5EFA\u8BAE\u540D\u79F0\uFF0C\u8FD8\u662F\u5728\u66F4\u65B0\u65F6\u4FDD\u7559\u7EBF\u4E0A\u540D\u79F0\u3002"
+    );
+  }
+  if (titleDecision === "custom") {
+    const customTitle = String(title || "").trim();
+    if (!customTitle) {
+      throw toolError("CUSTOM_TITLE_REQUIRED", "\u7528\u6237\u9009\u62E9\u4E86\u81EA\u5B9A\u4E49\u4F5C\u54C1\u540D\u79F0\uFF0C\u4F46\u6CA1\u6709\u63D0\u4F9B\u540D\u79F0\u3002", "\u8BF7\u8BA9\u7528\u6237\u8F93\u5165\u4F5C\u54C1\u540D\u79F0\u3002");
+    }
+    return customTitle;
+  }
+  if (titleDecision === "use_suggested") {
+    const normalizedSuggestedTitle = String(suggestedTitle || "").trim();
+    if (!normalizedSuggestedTitle) throw toolError("SUGGESTED_TITLE_UNAVAILABLE", "\u5F53\u524D\u6E90\u6587\u4EF6\u6CA1\u6709\u53EF\u7528\u7684\u5EFA\u8BAE\u540D\u79F0\u3002");
+    return normalizedSuggestedTitle;
+  }
+  if (titleDecision === "keep_existing") {
+    const normalizedExistingTitle = String(existingTitle || "").trim();
+    if (operation !== "update" || !normalizedExistingTitle) {
+      throw toolError("INVALID_TITLE_DECISION", "\u53EA\u6709\u66F4\u65B0\u5DF2\u6709\u4F5C\u54C1\u65F6\u624D\u80FD\u4FDD\u7559\u7EBF\u4E0A\u540D\u79F0\u3002");
+    }
+    return normalizedExistingTitle;
+  }
+  throw toolError("INVALID_TITLE_DECISION", "\u4F5C\u54C1\u540D\u79F0\u51B3\u7B56\u65E0\u6548\u3002");
+}
+function validateAccessPolicyConfirmation(confirmed) {
+  if (confirmed !== true) {
+    throw toolError(
+      "ACCESS_POLICY_CONFIRMATION_REQUIRED",
+      "\u53D1\u5E03\u524D\u5FC5\u987B\u8BA9\u7528\u6237\u660E\u786E\u9009\u62E9\u5206\u4EAB\u8303\u56F4\u3002",
+      "\u8BF7\u8BA9\u7528\u6237\u660E\u786E\u9009\u62E9\u4EC5\u534F\u4F5C\u8005\u3001\u516C\u53F8\u5185\u90E8\u94FE\u63A5\u6216\u5916\u90E8\u5BC6\u7801\u94FE\u63A5\u3002"
+    );
+  }
 }
 function siteSummary(site) {
   return {
@@ -21765,16 +21836,17 @@ function toolError(code, message, recovery = "") {
 
 // src/server.js
 var server = new McpServer(
-  { name: "html-share-workbench", version: "0.3.1" },
+  { name: "html-share-workbench", version: "0.4.1" },
   {
     instructions: [
       "\u53D1\u5E03\u6216\u66F4\u65B0\u672C\u5730 HTML \u5FC5\u987B\u8D70\u540C\u4E00\u4E2A\u5B89\u5168\u6D41\u7A0B\uFF1A",
       "1. \u5148\u8C03\u7528 auth_status\uFF1B\u9700\u8981\u9489\u9489\u6388\u6743\u65F6\u518D\u8C03\u7528 start_login\u3002",
       "2. \u8C03\u7528 precheck_package \u9884\u68C0\u6587\u4EF6\uFF1B\u5B58\u5728\u591A\u4E2A HTML \u65F6\u4E0D\u80FD\u731C\u5165\u53E3\u6587\u4EF6\u3002",
-      "3. \u7CBE\u786E\u5224\u65AD\u65B0\u5EFA\u8FD8\u662F\u66F4\u65B0\uFF1B\u9700\u8981\u66F4\u65B0\u65F6\u7528 find_sites \u6216\u672C\u5730 manifest \u5B9A\u4F4D\uFF0C\u4E0D\u80FD\u6309\u76F8\u4F3C\u6807\u9898\u731C\u6D4B\u3002",
-      "4. \u9009\u62E9\u4E00\u79CD\u5206\u4EAB\u8303\u56F4\u3002\u4EC5\u534F\u4F5C\u8005\u53EF\u89C1\u65F6\uFF0C\u7528 resolve_contacts \u89E3\u6790\u4EBA\u5458\u6216\u90E8\u95E8\u3002\u5916\u94FE\u5BC6\u7801\u5FC5\u987B\u6070\u597D\u4E3A 4 \u4F4D ASCII \u5B57\u6BCD\u6216\u6570\u5B57\u3002",
-      "5. \u8C03\u7528 prepare_publish\uFF0C\u628A\u5B8C\u6574 confirmation \u5C55\u793A\u7ED9\u7528\u6237\u3002",
-      "6. \u53EA\u6709\u7528\u6237\u5728\u540E\u7EED\u660E\u786E\u786E\u8BA4\u540E\uFF0C\u624D\u80FD\u8C03\u7528 execute_publish\u3002",
+      "3. \u5982\u679C\u7528\u6237\u672A\u63D0\u4F9B\u4F5C\u54C1\u540D\u79F0\uFF0C\u5FC5\u987B\u8BE2\u95EE\u7528\u6237\u4F7F\u7528\u5EFA\u8BAE\u540D\u79F0\u8FD8\u662F\u81EA\u5B9A\u4E49\u540D\u79F0\uFF1B\u66F4\u65B0\u65F6\u4E5F\u53EF\u4EE5\u660E\u786E\u9009\u62E9\u4FDD\u7559\u7EBF\u4E0A\u540D\u79F0\u3002",
+      "4. \u7CBE\u786E\u5224\u65AD\u65B0\u5EFA\u8FD8\u662F\u66F4\u65B0\uFF1B\u9700\u8981\u66F4\u65B0\u65F6\u7528 find_sites \u6216\u672C\u5730 manifest \u5B9A\u4F4D\uFF0C\u4E0D\u80FD\u6309\u76F8\u4F3C\u6807\u9898\u731C\u6D4B\u3002",
+      "5. \u5982\u679C\u7528\u6237\u672A\u8BF4\u660E\u5206\u4EAB\u8303\u56F4\uFF0C\u5FC5\u987B\u8BA9\u7528\u6237\u660E\u786E\u9009\u62E9\u4EC5\u534F\u4F5C\u8005\u3001\u516C\u53F8\u5185\u90E8\u94FE\u63A5\u6216\u5916\u90E8\u5BC6\u7801\u94FE\u63A5\uFF0C\u7EDD\u4E0D\u80FD\u81EA\u884C\u9009\u62E9\u3002\u4EC5\u534F\u4F5C\u8005\u53EF\u89C1\u65F6\uFF0C\u7528 resolve_contacts \u89E3\u6790\u4EBA\u5458\u6216\u90E8\u95E8\u3002",
+      "6. \u8C03\u7528 prepare_publish \u65F6\u5FC5\u987B\u4F20\u5165\u7528\u6237\u5DF2\u660E\u786E\u4F5C\u51FA\u7684\u540D\u79F0\u51B3\u7B56\u548C\u5206\u4EAB\u8303\u56F4\u786E\u8BA4\uFF0C\u628A\u5B8C\u6574 confirmation \u5C55\u793A\u7ED9\u7528\u6237\u3002",
+      "7. \u5C55\u793A confirmation \u540E\u505C\u6B62\uFF1B\u53EA\u6709\u7528\u6237\u5728\u540E\u7EED\u660E\u786E\u786E\u8BA4\u540E\uFF0C\u624D\u80FD\u8C03\u7528 execute_publish\u3002",
       "\u66F4\u65B0\u4F1A\u521B\u5EFA\u65B0\u7248\u672C\u5E76\u4FDD\u6301\u7A33\u5B9A\u5206\u4EAB\u94FE\u63A5\u3002\u7EDD\u4E0D\u80FD\u6CC4\u9732\u672C\u673A\u59D4\u6258\u4EE4\u724C\u3002"
     ].join("\n")
   }
@@ -21788,7 +21860,7 @@ register("auth_status", {
 register("start_login", {
   title: "\u53D1\u8D77\u9489\u9489\u6388\u6743",
   description: "\u521B\u5EFA\u4E00\u6B21\u6027\u9489\u9489\u6388\u6743\u94FE\u63A5\u3002\u4EC5\u5728 auth_status \u8FD4\u56DE need_auth \u65F6\u8C03\u7528\u3002",
-  inputSchema: { clientName: external_exports.string().max(80).optional() },
+  inputSchema: {},
   annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false }
 }, startLogin);
 register("revoke_authorization", {
@@ -21829,12 +21901,14 @@ register("prepare_publish", {
   inputSchema: {
     sourcePath: external_exports.string().min(1),
     operation: external_exports.enum(["new", "update"]),
-    title: external_exports.string().optional().describe("\u4F5C\u54C1\u540D\u79F0\uFF0C\u4E5F\u4F1A\u51FA\u73B0\u5728\u5206\u4EAB\u94FE\u63A5\u4E2D\uFF1B\u7701\u7565\u65F6\u65B0\u4F5C\u54C1\u4F7F\u7528\u6E90\u6587\u4EF6\u3001ZIP \u6216\u76EE\u5F55\u539F\u540D\uFF0C\u66F4\u65B0\u5219\u4FDD\u7559\u73B0\u6709\u540D\u79F0"),
+    titleDecision: external_exports.enum(["custom", "use_suggested", "keep_existing"]).describe("\u7528\u6237\u660E\u786E\u4F5C\u51FA\u7684\u540D\u79F0\u51B3\u7B56\uFF1Bcustom \u5FC5\u987B\u63D0\u4F9B title\uFF0Ckeep_existing \u4EC5\u53EF\u7528\u4E8E\u66F4\u65B0"),
+    title: external_exports.string().optional().describe("\u4EC5\u5728 titleDecision=custom \u65F6\u63D0\u4F9B\u7528\u6237\u8F93\u5165\u7684\u4F5C\u54C1\u540D\u79F0"),
     siteId: external_exports.string().optional().describe("\u66F4\u65B0\u65F6\u7684 siteId \u6216\u7A33\u5B9A\u5206\u4EAB\u94FE\u63A5\uFF1B\u76EE\u5F55 manifest \u53EF\u552F\u4E00\u5B9A\u4F4D\u65F6\u53EF\u7701\u7565"),
     entryFile: external_exports.string().optional(),
     description: external_exports.string().optional(),
     versionNote: external_exports.string().optional(),
     accessPolicy: external_exports.enum(["collaborators", "company_link", "external_link"]),
+    accessPolicyConfirmed: external_exports.literal(true).describe("\u53EA\u6709\u7528\u6237\u5728\u804A\u5929\u4E2D\u660E\u786E\u9009\u62E9\u4E86 accessPolicy \u540E\u624D\u80FD\u4F20 true"),
     permissions: external_exports.array(external_exports.object({
       scopeType: external_exports.enum(["user", "department"]),
       scopeId: external_exports.string().min(1),

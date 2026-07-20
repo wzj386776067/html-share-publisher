@@ -15,16 +15,17 @@ import {
 } from './service.js';
 
 const server = new McpServer(
-  { name: 'html-share-workbench', version: '0.3.1' },
+  { name: 'html-share-workbench', version: '0.4.1' },
   {
     instructions: [
       '发布或更新本地 HTML 必须走同一个安全流程：',
       '1. 先调用 auth_status；需要钉钉授权时再调用 start_login。',
       '2. 调用 precheck_package 预检文件；存在多个 HTML 时不能猜入口文件。',
-      '3. 精确判断新建还是更新；需要更新时用 find_sites 或本地 manifest 定位，不能按相似标题猜测。',
-      '4. 选择一种分享范围。仅协作者可见时，用 resolve_contacts 解析人员或部门。外链密码必须恰好为 4 位 ASCII 字母或数字。',
-      '5. 调用 prepare_publish，把完整 confirmation 展示给用户。',
-      '6. 只有用户在后续明确确认后，才能调用 execute_publish。',
+      '3. 如果用户未提供作品名称，必须询问用户使用建议名称还是自定义名称；更新时也可以明确选择保留线上名称。',
+      '4. 精确判断新建还是更新；需要更新时用 find_sites 或本地 manifest 定位，不能按相似标题猜测。',
+      '5. 如果用户未说明分享范围，必须让用户明确选择仅协作者、公司内部链接或外部密码链接，绝不能自行选择。仅协作者可见时，用 resolve_contacts 解析人员或部门。',
+      '6. 调用 prepare_publish 时必须传入用户已明确作出的名称决策和分享范围确认，把完整 confirmation 展示给用户。',
+      '7. 展示 confirmation 后停止；只有用户在后续明确确认后，才能调用 execute_publish。',
       '更新会创建新版本并保持稳定分享链接。绝不能泄露本机委托令牌。'
     ].join('\n')
   }
@@ -40,7 +41,7 @@ register('auth_status', {
 register('start_login', {
   title: '发起钉钉授权',
   description: '创建一次性钉钉授权链接。仅在 auth_status 返回 need_auth 时调用。',
-  inputSchema: { clientName: z.string().max(80).optional() },
+  inputSchema: {},
   annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false }
 }, startLogin);
 
@@ -86,12 +87,15 @@ register('prepare_publish', {
   inputSchema: {
     sourcePath: z.string().min(1),
     operation: z.enum(['new', 'update']),
-    title: z.string().optional().describe('作品名称，也会出现在分享链接中；省略时新作品使用源文件、ZIP 或目录原名，更新则保留现有名称'),
+    titleDecision: z.enum(['custom', 'use_suggested', 'keep_existing'])
+      .describe('用户明确作出的名称决策；custom 必须提供 title，keep_existing 仅可用于更新'),
+    title: z.string().optional().describe('仅在 titleDecision=custom 时提供用户输入的作品名称'),
     siteId: z.string().optional().describe('更新时的 siteId 或稳定分享链接；目录 manifest 可唯一定位时可省略'),
     entryFile: z.string().optional(),
     description: z.string().optional(),
     versionNote: z.string().optional(),
     accessPolicy: z.enum(['collaborators', 'company_link', 'external_link']),
+    accessPolicyConfirmed: z.literal(true).describe('只有用户在聊天中明确选择了 accessPolicy 后才能传 true'),
     permissions: z.array(z.object({
       scopeType: z.enum(['user', 'department']),
       scopeId: z.string().min(1),

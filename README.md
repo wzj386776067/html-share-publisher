@@ -101,7 +101,7 @@ codex plugin add html-share-publisher@bicheng-html-share
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/wzj386776067/html-share-publisher/main/install.sh \
-  | bash -s -- --version v0.4.0
+  | bash -s -- --version v0.4.1
 ```
 
 重复运行安装命令即可升级或修复安装。发布凭证保存在 `~/.config/html-share`，升级不会删除凭证。
@@ -123,7 +123,8 @@ codex plugin marketplace remove bicheng-html-share
 - 钉钉 `AppSecret` 只存在于公司服务端，本地客户端不会获取它。
 - 本地只保存工作台签发的可撤销短期令牌，Skill 禁止展示或索取该令牌。
 - MCP 初始化说明和工具描述都包含固定安全流程，不依赖某一种客户端的 Skill 实现。
-- 只有 `execute_publish` 会执行远程发布，并且必须使用最终确认后生成的计划。
+- `prepare_publish` 必须包含用户明确作出的作品名称决策和分享范围确认，否则不会生成发布计划。
+- 只有 `execute_publish` 会执行远程发布，并且必须等待用户在聊天中确认完整摘要。
 - 公开仓库不等于开放发布权限；服务端仍按真实钉钉身份、作品所有权和权限规则校验。
 
 本仓库目前未附带开源许可证。代码公开用于公司内安装和安全审阅，不代表授予第三方复制、修改或再分发许可。

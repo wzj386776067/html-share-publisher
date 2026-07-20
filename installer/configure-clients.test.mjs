@@ -46,6 +46,7 @@ test('merges WorkBuddy MCP config without removing existing servers', () => {
   assert.equal(config.setting, true);
   assert.equal(config.mcpServers.existing.command, 'existing');
   assert.equal(config.mcpServers['html-share'].env.HTML_SHARE_API_BASE, 'https://share.bi-cheng.cn');
+  assert.equal(config.mcpServers['html-share'].env.HTML_SHARE_CLIENT_NAME, 'WorkBuddy');
   assert.deepEqual(result.selectedClients, ['workbuddy']);
 });
 
@@ -57,8 +58,11 @@ test('configures TRAE global MCP and Skill locations on macOS', () => {
   configureClients(options(source, { client: 'trae', platform: 'darwin' }));
   assert.ok(fs.existsSync(path.join(source.home, '.trae', 'skills', 'html-share-publisher', 'SKILL.md')));
   assert.ok(fs.existsSync(path.join(source.home, '.trae-cn', 'skills', 'html-share-publisher', 'SKILL.md')));
-  assert.ok(fs.existsSync(path.join(source.home, 'Library', 'Application Support', 'Trae', 'User', 'settings', 'mcp.json')));
+  const traeConfigPath = path.join(source.home, 'Library', 'Application Support', 'Trae', 'User', 'settings', 'mcp.json');
+  assert.ok(fs.existsSync(traeConfigPath));
   assert.ok(fs.existsSync(path.join(source.home, 'Library', 'Application Support', 'TRAE SOLO CN', 'User', 'mcp.json')));
+  const config = JSON.parse(fs.readFileSync(traeConfigPath, 'utf8'));
+  assert.equal(config.mcpServers['html-share'].env.HTML_SHARE_CLIENT_NAME, 'TRAE');
 });
 
 test('writes a generic importable MCP config for unsupported clients', () => {
@@ -68,6 +72,7 @@ test('writes a generic importable MCP config for unsupported clients', () => {
   const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
   assert.equal(config.mcpServers['html-share'].command, process.execPath);
   assert.deepEqual(config.mcpServers['html-share'].args, [source.serverPath]);
+  assert.equal(config.mcpServers['html-share'].env.HTML_SHARE_CLIENT_NAME, 'Generic MCP client');
 });
 
 test('refuses to overwrite invalid JSON client config', () => {

@@ -7,7 +7,8 @@
       "command": "node",
       "args": ["./mcp/server.mjs"],
       "env": {
-        "HTML_SHARE_API_BASE": "https://share.bi-cheng.cn"
+        "HTML_SHARE_API_BASE": "https://share.bi-cheng.cn",
+        "HTML_SHARE_CLIENT_NAME": "Codex"
       }
     }
   }
