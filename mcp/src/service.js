@@ -126,14 +126,31 @@ export async function precheckPackage({ sourcePath, entryFile = '' }) {
 
 export async function findSites({ query = '' } = {}) {
   const authorization = await requireAuthorization();
+  const reference = normalizeSiteReference(query);
+  const explicitReference = /^site_[A-Za-z0-9_-]+$/.test(String(query || '').trim())
+    || /(?:\/s\/|~)/.test(String(query || ''));
+  if (explicitReference && (reference.siteId || reference.publicCode)) {
+    try {
+      const site = await resolveSiteReference(reference);
+      const sites = authorization.user.role === 'admin' || site.ownerId === authorization.user.id
+        ? [siteSummary(site)]
+        : [];
+      return { status: 'ok', sites, count: sites.length };
+    } catch (error) {
+      if (error.status === 404) return { status: 'ok', sites: [], count: 0 };
+      throw error;
+    }
+  }
+
   const { data } = await apiRequest('/api/sites');
-  const normalizedSiteId = normalizeSiteId(query);
   const normalizedQuery = normalize(query);
   const sites = data.sites
     .filter((site) => authorization.user.role === 'admin' || site.ownerId === authorization.user.id)
-    .filter((site) => normalizedSiteId
-      ? site.id === normalizedSiteId
-      : (!normalizedQuery || siteSearchText(site).includes(normalizedQuery)))
+    .filter((site) => {
+      if (explicitReference && reference.siteId) return site.id === reference.siteId;
+      if (explicitReference && reference.publicCode) return site.publicCode === reference.publicCode;
+      return !normalizedQuery || siteSearchText(site).includes(normalizedQuery);
+    })
     .slice(0, 10)
     .map(siteSummary);
   return { status: 'ok', sites, count: sites.length };
@@ -179,11 +196,12 @@ export async function preparePublish(input) {
   let site = null;
   if (operation === 'update') {
     const localManifest = readLocalManifest(source);
-    const targetId = normalizeSiteId(input.siteId || localManifest?.siteId || '');
-    if (!targetId) {
+    const targetInput = input.siteId || localManifest?.siteId || '';
+    const targetReference = normalizeSiteReference(targetInput);
+    if (!targetReference.siteId && !targetReference.publicCode) {
       throw toolError('UPDATE_TARGET_REQUIRED', '没有找到唯一的更新目标。', '请提供 siteId 或在作品目录保留 .htmlshare.json。');
     }
-    site = await findManageableSite(targetId, authorization.user);
+    site = await findManageableSite(targetReference, authorization.user, targetInput);
   }
 
   const title = resolvePublishTitle({
@@ -351,14 +369,25 @@ function publishContextForPlan(plan) {
   };
 }
 
-async function findManageableSite(siteId, user) {
-  const { data } = await apiRequest('/api/sites');
-  const site = data.sites.find((candidate) => candidate.id === siteId);
-  if (!site) throw toolError('SITE_NOT_FOUND', `找不到作品 ${siteId}。`, '检查 siteId 或分享链接，不能按相似标题猜测。');
+async function findManageableSite(reference, user, input) {
+  let site;
+  try {
+    site = await resolveSiteReference(reference);
+  } catch (error) {
+    if (error.status === 404) {
+      throw toolError('SITE_NOT_FOUND', `找不到作品 ${input}。`, '检查 siteId 或分享链接，不能按相似标题猜测。');
+    }
+    throw error;
+  }
   if (user.role !== 'admin' && site.ownerId !== user.id) {
     throw toolError('SITE_NOT_MANAGEABLE', '当前账号不是该作品的发布者，不能更新。', '请切换到发布者账号，或新建作品。');
   }
   return site;
+}
+
+async function resolveSiteReference(reference) {
+  const value = reference.siteId || reference.publicCode;
+  return (await apiRequest(`/api/sites/resolve?reference=${encodeURIComponent(value)}`)).data;
 }
 
 async function requireAuthorization() {
@@ -448,6 +477,7 @@ export function validateAccessPolicyConfirmation(confirmed) {
 function siteSummary(site) {
   return {
     siteId: site.id,
+    publicCode: site.publicCode || '',
     title: site.title,
     ownerName: site.ownerName,
     status: site.status,
@@ -458,19 +488,33 @@ function siteSummary(site) {
 }
 
 function siteSearchText(site) {
-  return normalize([site.id, site.title, site.alias, site.ownerName].join(' '));
+  return normalize([site.id, site.publicCode, site.title, site.alias, site.ownerName].join(' '));
 }
 
 export function normalizeSiteId(value) {
+  return normalizeSiteReference(value).siteId;
+}
+
+export function normalizeSiteReference(value) {
   const text = String(value || '').trim();
-  if (/^site_[A-Za-z0-9_-]+$/.test(text)) return text;
+  if (/^site_[A-Za-z0-9_-]+$/.test(text)) return { siteId: text, publicCode: '' };
+  if (/^[A-Za-z0-9_-]{12}$/.test(text)) return { siteId: '', publicCode: text };
+
+  let routeKey = '';
   try {
-    const routeKey = new URL(text).pathname.match(/\/s\/([^/]+)/)?.[1] || '';
-    const decoded = decodeURIComponent(routeKey);
-    const match = decoded.match(/(?:^|~)(site_[A-Za-z0-9_-]+)$/);
-    return match?.[1] || '';
+    routeKey = new URL(text).pathname.match(/\/s\/([^/]+)/)?.[1] || '';
   } catch {
-    return '';
+    routeKey = text.includes('~') ? text : '';
+  }
+
+  try {
+    const decoded = decodeURIComponent(routeKey);
+    const siteId = decoded.match(/(?:^|~)(site_[A-Za-z0-9_-]+)$/)?.[1] || '';
+    if (siteId) return { siteId, publicCode: '' };
+    const publicCode = decoded.match(/(?:^|~)([A-Za-z0-9_-]{12})$/)?.[1] || '';
+    return { siteId: '', publicCode };
+  } catch {
+    return { siteId: '', publicCode: '' };
   }
 }
 

@@ -15,7 +15,7 @@ import {
 } from './service.js';
 
 const server = new McpServer(
-  { name: 'html-share-workbench', version: '0.4.1' },
+  { name: 'html-share-workbench', version: '0.4.2' },
   {
     instructions: [
       '发布或更新本地 HTML 必须走同一个安全流程：',
@@ -64,7 +64,7 @@ register('precheck_package', {
 
 register('find_sites', {
   title: '查找可更新作品',
-  description: '按 siteId、标题或分享链接查找当前用户有权管理的作品；有歧义时必须让用户选择。',
+  description: '按 siteId、标题、新短链接或旧分享链接查找当前用户有权管理的作品；有歧义时必须让用户选择。',
   inputSchema: { query: z.string().optional() },
   annotations: { readOnlyHint: true }
 }, findSites);

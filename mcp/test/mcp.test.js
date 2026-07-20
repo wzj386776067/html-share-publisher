@@ -12,6 +12,7 @@ import { inspectSource, packageSource, readLocalManifest } from '../src/package-
 import {
   generateExternalPassword,
   normalizeSiteId,
+  normalizeSiteReference,
   resolvePublishTitle,
   validateAccessPolicyConfirmation
 } from '../src/service.js';
@@ -148,4 +149,10 @@ test('derives default titles from source names and accepts readable share URLs a
     normalizeSiteId('https://share-content.example/s/%E5%AD%A3%E5%BA%A6%E7%BB%8F%E8%90%A5%E5%A4%8D%E7%9B%98~site_1234-abcd/'),
     'site_1234-abcd'
   );
+  assert.deepEqual(
+    normalizeSiteReference('https://share-content.example/s/%E5%AD%A3%E5%BA%A6%E7%BB%8F%E8%90%A5%E5%A4%8D%E7%9B%98~AbCdEf123_-9/'),
+    { siteId: '', publicCode: 'AbCdEf123_-9' }
+  );
+  assert.deepEqual(normalizeSiteReference('AbCdEf123_-9'), { siteId: '', publicCode: 'AbCdEf123_-9' });
+  assert.deepEqual(normalizeSiteReference('site_1234-abcd'), { siteId: 'site_1234-abcd', publicCode: '' });
 });
