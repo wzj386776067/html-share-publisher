@@ -8,7 +8,7 @@
 
 - 钉钉身份授权；
 - HTML、静态站点目录或 ZIP 的预检与打包；
-- 新建作品或精准更新已有作品；
+- 新建作品或通过 `siteId`、新短链接、旧链接精准更新已有作品；
 - 设置仅协作者、公司内部链接或 4 位字母数字密码外链；
 - 最终确认后发布，并保留稳定链接和本地更新绑定。
 
@@ -101,7 +101,7 @@ codex plugin add html-share-publisher@bicheng-html-share
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/wzj386776067/html-share-publisher/main/install.sh \
-  | bash -s -- --version v0.4.1
+  | bash -s -- --version v0.4.2
 ```
 
 重复运行安装命令即可升级或修复安装。发布凭证保存在 `~/.config/html-share`，升级不会删除凭证。

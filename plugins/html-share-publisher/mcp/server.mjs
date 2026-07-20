@@ -21491,10 +21491,25 @@ async function precheckPackage({ sourcePath, entryFile = "" }) {
 }
 async function findSites({ query = "" } = {}) {
   const authorization = await requireAuthorization();
+  const reference = normalizeSiteReference(query);
+  const explicitReference = /^site_[A-Za-z0-9_-]+$/.test(String(query || "").trim()) || /(?:\/s\/|~)/.test(String(query || ""));
+  if (explicitReference && (reference.siteId || reference.publicCode)) {
+    try {
+      const site = await resolveSiteReference(reference);
+      const sites2 = authorization.user.role === "admin" || site.ownerId === authorization.user.id ? [siteSummary(site)] : [];
+      return { status: "ok", sites: sites2, count: sites2.length };
+    } catch (error2) {
+      if (error2.status === 404) return { status: "ok", sites: [], count: 0 };
+      throw error2;
+    }
+  }
   const { data } = await apiRequest("/api/sites");
-  const normalizedSiteId = normalizeSiteId(query);
   const normalizedQuery = normalize(query);
-  const sites = data.sites.filter((site) => authorization.user.role === "admin" || site.ownerId === authorization.user.id).filter((site) => normalizedSiteId ? site.id === normalizedSiteId : !normalizedQuery || siteSearchText(site).includes(normalizedQuery)).slice(0, 10).map(siteSummary);
+  const sites = data.sites.filter((site) => authorization.user.role === "admin" || site.ownerId === authorization.user.id).filter((site) => {
+    if (explicitReference && reference.siteId) return site.id === reference.siteId;
+    if (explicitReference && reference.publicCode) return site.publicCode === reference.publicCode;
+    return !normalizedQuery || siteSearchText(site).includes(normalizedQuery);
+  }).slice(0, 10).map(siteSummary);
   return { status: "ok", sites, count: sites.length };
 }
 async function resolveContacts({ contacts }) {
@@ -21532,11 +21547,12 @@ async function preparePublish(input) {
   let site = null;
   if (operation === "update") {
     const localManifest = readLocalManifest(source);
-    const targetId = normalizeSiteId(input.siteId || localManifest?.siteId || "");
-    if (!targetId) {
+    const targetInput = input.siteId || localManifest?.siteId || "";
+    const targetReference = normalizeSiteReference(targetInput);
+    if (!targetReference.siteId && !targetReference.publicCode) {
       throw toolError("UPDATE_TARGET_REQUIRED", "\u6CA1\u6709\u627E\u5230\u552F\u4E00\u7684\u66F4\u65B0\u76EE\u6807\u3002", "\u8BF7\u63D0\u4F9B siteId \u6216\u5728\u4F5C\u54C1\u76EE\u5F55\u4FDD\u7559 .htmlshare.json\u3002");
     }
-    site = await findManageableSite(targetId, authorization.user);
+    site = await findManageableSite(targetReference, authorization.user, targetInput);
   }
   const title = resolvePublishTitle({
     operation,
@@ -21688,14 +21704,24 @@ function publishContextForPlan(plan) {
     chatConfirmed: true
   };
 }
-async function findManageableSite(siteId, user) {
-  const { data } = await apiRequest("/api/sites");
-  const site = data.sites.find((candidate) => candidate.id === siteId);
-  if (!site) throw toolError("SITE_NOT_FOUND", `\u627E\u4E0D\u5230\u4F5C\u54C1 ${siteId}\u3002`, "\u68C0\u67E5 siteId \u6216\u5206\u4EAB\u94FE\u63A5\uFF0C\u4E0D\u80FD\u6309\u76F8\u4F3C\u6807\u9898\u731C\u6D4B\u3002");
+async function findManageableSite(reference, user, input) {
+  let site;
+  try {
+    site = await resolveSiteReference(reference);
+  } catch (error2) {
+    if (error2.status === 404) {
+      throw toolError("SITE_NOT_FOUND", `\u627E\u4E0D\u5230\u4F5C\u54C1 ${input}\u3002`, "\u68C0\u67E5 siteId \u6216\u5206\u4EAB\u94FE\u63A5\uFF0C\u4E0D\u80FD\u6309\u76F8\u4F3C\u6807\u9898\u731C\u6D4B\u3002");
+    }
+    throw error2;
+  }
   if (user.role !== "admin" && site.ownerId !== user.id) {
     throw toolError("SITE_NOT_MANAGEABLE", "\u5F53\u524D\u8D26\u53F7\u4E0D\u662F\u8BE5\u4F5C\u54C1\u7684\u53D1\u5E03\u8005\uFF0C\u4E0D\u80FD\u66F4\u65B0\u3002", "\u8BF7\u5207\u6362\u5230\u53D1\u5E03\u8005\u8D26\u53F7\uFF0C\u6216\u65B0\u5EFA\u4F5C\u54C1\u3002");
   }
   return site;
+}
+async function resolveSiteReference(reference) {
+  const value = reference.siteId || reference.publicCode;
+  return (await apiRequest(`/api/sites/resolve?reference=${encodeURIComponent(value)}`)).data;
 }
 async function requireAuthorization() {
   const status = await authStatus();
@@ -21777,6 +21803,7 @@ function validateAccessPolicyConfirmation(confirmed) {
 function siteSummary(site) {
   return {
     siteId: site.id,
+    publicCode: site.publicCode || "",
     title: site.title,
     ownerName: site.ownerName,
     status: site.status,
@@ -21786,18 +21813,26 @@ function siteSummary(site) {
   };
 }
 function siteSearchText(site) {
-  return normalize([site.id, site.title, site.alias, site.ownerName].join(" "));
+  return normalize([site.id, site.publicCode, site.title, site.alias, site.ownerName].join(" "));
 }
-function normalizeSiteId(value) {
+function normalizeSiteReference(value) {
   const text = String(value || "").trim();
-  if (/^site_[A-Za-z0-9_-]+$/.test(text)) return text;
+  if (/^site_[A-Za-z0-9_-]+$/.test(text)) return { siteId: text, publicCode: "" };
+  if (/^[A-Za-z0-9_-]{12}$/.test(text)) return { siteId: "", publicCode: text };
+  let routeKey = "";
   try {
-    const routeKey = new URL(text).pathname.match(/\/s\/([^/]+)/)?.[1] || "";
-    const decoded = decodeURIComponent(routeKey);
-    const match = decoded.match(/(?:^|~)(site_[A-Za-z0-9_-]+)$/);
-    return match?.[1] || "";
+    routeKey = new URL(text).pathname.match(/\/s\/([^/]+)/)?.[1] || "";
   } catch {
-    return "";
+    routeKey = text.includes("~") ? text : "";
+  }
+  try {
+    const decoded = decodeURIComponent(routeKey);
+    const siteId = decoded.match(/(?:^|~)(site_[A-Za-z0-9_-]+)$/)?.[1] || "";
+    if (siteId) return { siteId, publicCode: "" };
+    const publicCode = decoded.match(/(?:^|~)([A-Za-z0-9_-]{12})$/)?.[1] || "";
+    return { siteId: "", publicCode };
+  } catch {
+    return { siteId: "", publicCode: "" };
   }
 }
 function normalize(value) {
@@ -21836,7 +21871,7 @@ function toolError(code, message, recovery = "") {
 
 // src/server.js
 var server = new McpServer(
-  { name: "html-share-workbench", version: "0.4.1" },
+  { name: "html-share-workbench", version: "0.4.2" },
   {
     instructions: [
       "\u53D1\u5E03\u6216\u66F4\u65B0\u672C\u5730 HTML \u5FC5\u987B\u8D70\u540C\u4E00\u4E2A\u5B89\u5168\u6D41\u7A0B\uFF1A",
@@ -21880,7 +21915,7 @@ register("precheck_package", {
 }, precheckPackage);
 register("find_sites", {
   title: "\u67E5\u627E\u53EF\u66F4\u65B0\u4F5C\u54C1",
-  description: "\u6309 siteId\u3001\u6807\u9898\u6216\u5206\u4EAB\u94FE\u63A5\u67E5\u627E\u5F53\u524D\u7528\u6237\u6709\u6743\u7BA1\u7406\u7684\u4F5C\u54C1\uFF1B\u6709\u6B67\u4E49\u65F6\u5FC5\u987B\u8BA9\u7528\u6237\u9009\u62E9\u3002",
+  description: "\u6309 siteId\u3001\u6807\u9898\u3001\u65B0\u77ED\u94FE\u63A5\u6216\u65E7\u5206\u4EAB\u94FE\u63A5\u67E5\u627E\u5F53\u524D\u7528\u6237\u6709\u6743\u7BA1\u7406\u7684\u4F5C\u54C1\uFF1B\u6709\u6B67\u4E49\u65F6\u5FC5\u987B\u8BA9\u7528\u6237\u9009\u62E9\u3002",
   inputSchema: { query: external_exports.string().optional() },
   annotations: { readOnlyHint: true }
 }, findSites);
