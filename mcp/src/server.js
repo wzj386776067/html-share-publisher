@@ -15,7 +15,7 @@ import {
 } from './service.js';
 
 const server = new McpServer(
-  { name: 'html-share-workbench', version: '0.4.4' },
+  { name: 'html-share-workbench', version: '0.4.5' },
   {
     instructions: [
       '发布或更新本地 HTML 必须走同一个安全流程：',
@@ -24,9 +24,10 @@ const server = new McpServer(
       '3. 如果用户未提供作品名称，必须询问用户使用建议名称还是自定义名称；更新时也可以明确选择保留线上名称。',
       '4. 精确判断新建还是更新；需要更新时用 find_sites 或本地 manifest 定位，不能按相似标题猜测。',
       '5. 如果用户未说明分享范围，必须让用户明确选择仅协作者、公司内部链接或外部密码链接，绝不能自行选择。仅协作者可见时，用 resolve_contacts 解析人员或部门。',
-      '6. 调用 prepare_publish 时必须传入用户已明确作出的名称决策和分享范围确认，把完整 confirmation 展示给用户。',
-      '7. 展示 confirmation 后停止；只有用户在后续明确确认后，才能调用 execute_publish。',
-      '8. 发布完成后只把 recipientUrl 作为给接收者的链接；external_link 时绝不能用内部 shareUrl 代替外部密码链接。',
+      '6. 用户选择外部密码链接但未指定有效期时，不要额外阻塞询问；明确告知将使用默认 90 天且可在最终确认时修改。',
+      '7. 调用 prepare_publish 时必须传入用户已明确作出的名称决策和分享范围确认，把完整 confirmation 展示给用户；外部访问必须同时展示有效天数、准确到期时间和是否使用默认值。',
+      '8. 展示 confirmation 后停止；用户可以直接确认，也可以先修改外链有效期。用户要求修改时必须重新调用 prepare_publish 并展示新的 confirmation，不能执行旧计划。',
+      '9. 只有用户对当前最新 confirmation 明确确认后，才能调用 execute_publish。发布完成后只把 recipientUrl 作为给接收者的链接；external_link 时绝不能用内部 shareUrl 代替外部密码链接。',
       '更新会创建新版本并保持稳定分享链接。绝不能泄露本机委托令牌。'
     ].join('\n')
   }
@@ -107,6 +108,7 @@ register('prepare_publish', {
     externalPassword: z.string().length(4).regex(/^[A-Za-z0-9]{4}$/).optional()
       .describe('外链密码必须恰好为 4 位，且仅可包含英文字母或数字；省略则自动生成'),
     externalExpiresAt: z.string().optional()
+      .describe('外链准确失效时间；AI 将“30 天”等用户期限换算为未来的 ISO 时间。用户未指定时省略，MCP 使用默认 90 天并在最终确认中明确展示')
   },
   annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false }
 }, preparePublish);
