@@ -14,6 +14,7 @@ import {
   normalizePrecheckResult,
   normalizeSiteId,
   normalizeSiteReference,
+  resolvePublishedLinks,
   resolvePublishTitle,
   validateAccessPolicyConfirmation,
   validateEntryFileConfirmation
@@ -31,6 +32,8 @@ test('exposes the complete safe publish tool set over MCP stdio', async () => {
     assert.match(client.getInstructions(), /只有用户在后续明确确认后，才能调用 execute_publish/);
     assert.match(client.getInstructions(), /必须询问用户使用建议名称还是自定义名称/);
     assert.match(client.getInstructions(), /必须让用户明确选择/);
+    assert.match(client.getInstructions(), /只把 recipientUrl 作为给接收者的链接/);
+    assert.match(client.getInstructions(), /external_link 时绝不能用内部 shareUrl/);
     assert.deepEqual(result.tools.map((tool) => tool.name), [
       'auth_status',
       'start_login',
@@ -127,6 +130,39 @@ test('requires explicit title and access-policy decisions before preparing a pub
     () => validateAccessPolicyConfirmation(false),
     (error) => error.code === 'ACCESS_POLICY_CONFIRMATION_REQUIRED'
   );
+});
+
+test('returns one unambiguous recipient URL without unsafe external fallback', () => {
+  assert.deepEqual(resolvePublishedLinks({
+    accessPolicy: 'company_link',
+    shareUrl: 'https://content.example/s/site/',
+    externalUrl: 'https://content.example/share/token/'
+  }), {
+    recipientUrl: 'https://content.example/s/site/',
+    recipientAccess: 'dingtalk',
+    internalPreviewUrl: '',
+    linkWarning: ''
+  });
+  assert.deepEqual(resolvePublishedLinks({
+    accessPolicy: 'external_link',
+    shareUrl: 'https://content.example/s/site/',
+    externalUrl: 'https://content.example/share/token/'
+  }), {
+    recipientUrl: 'https://content.example/share/token/',
+    recipientAccess: 'external_password',
+    internalPreviewUrl: 'https://content.example/s/site/',
+    linkWarning: ''
+  });
+  assert.deepEqual(resolvePublishedLinks({
+    accessPolicy: 'external_link',
+    shareUrl: 'https://content.example/s/site/',
+    externalUrl: ''
+  }), {
+    recipientUrl: '',
+    recipientAccess: 'external_password',
+    internalPreviewUrl: 'https://content.example/s/site/',
+    linkWarning: '外部密码链接尚未生成，不能使用内部预览链接代替。'
+  });
 });
 
 test('generates four-character alphanumeric external passwords', () => {
