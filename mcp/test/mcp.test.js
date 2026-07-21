@@ -11,6 +11,7 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { inspectSource, packageSource, readLocalManifest } from '../src/package-source.js';
 import {
   generateExternalPassword,
+  externalExpiryConfirmation,
   normalizePrecheckResult,
   normalizeSiteId,
   normalizeSiteReference,
@@ -29,9 +30,12 @@ test('exposes the complete safe publish tool set over MCP stdio', async () => {
   await client.connect(transport);
   try {
     const result = await client.listTools();
-    assert.match(client.getInstructions(), /只有用户在后续明确确认后，才能调用 execute_publish/);
+    assert.match(client.getInstructions(), /只有用户对当前最新 confirmation 明确确认后，才能调用 execute_publish/);
     assert.match(client.getInstructions(), /必须询问用户使用建议名称还是自定义名称/);
     assert.match(client.getInstructions(), /必须让用户明确选择/);
+    assert.match(client.getInstructions(), /默认 90 天且可在最终确认时修改/);
+    assert.match(client.getInstructions(), /有效天数、准确到期时间和是否使用默认值/);
+    assert.match(client.getInstructions(), /重新调用 prepare_publish 并展示新的 confirmation/);
     assert.match(client.getInstructions(), /只把 recipientUrl 作为给接收者的链接/);
     assert.match(client.getInstructions(), /external_link 时绝不能用内部 shareUrl/);
     assert.deepEqual(result.tools.map((tool) => tool.name), [
@@ -55,9 +59,36 @@ test('exposes the complete safe publish tool set over MCP stdio', async () => {
     assert.equal(passwordSchema.maxLength, 4);
     assert.equal(passwordSchema.pattern, '^[A-Za-z0-9]{4}$');
     assert.equal(prepare.inputSchema.properties.entryFileConfirmed.const, true);
+    assert.match(prepare.inputSchema.properties.externalExpiresAt.description, /“30 天”/);
+    assert.match(prepare.inputSchema.properties.externalExpiresAt.description, /默认 90 天/);
   } finally {
     await client.close();
   }
+});
+
+test('describes default and custom external expiry without adding another blocking decision', () => {
+  const defaultExpiry = externalExpiryConfirmation({
+    createdAt: '2026-07-21T08:00:00.000Z',
+    externalExpiresAt: '2026-10-19T08:00:00.000Z',
+    externalExpiryMode: 'default_90_days'
+  });
+  assert.deepEqual(defaultExpiry, {
+    expiresAt: '2026-10-19T08:00:00.000Z',
+    validityDays: 90,
+    expiryMode: 'default_90_days',
+    defaultApplied: true,
+    canModifyBeforePublish: true,
+    displayText: '默认 90 天，可在最终确认前修改'
+  });
+
+  const customExpiry = externalExpiryConfirmation({
+    createdAt: '2026-07-21T08:00:00.000Z',
+    externalExpiresAt: '2026-08-20T08:00:00.000Z',
+    externalExpiryMode: 'custom'
+  });
+  assert.equal(customExpiry.validityDays, 30);
+  assert.equal(customExpiry.defaultApplied, false);
+  assert.equal(customExpiry.displayText, '用户指定 30 天');
 });
 
 test('normalizes old and new precheck contracts and requires confirmed multi-html entry selection', () => {

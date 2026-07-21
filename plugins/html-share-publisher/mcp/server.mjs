@@ -21390,6 +21390,8 @@ function inputError(message) {
 
 // src/service.js
 var PLAN_MAX_AGE_MS = 15 * 60 * 1e3;
+var DAY_MS = 24 * 60 * 60 * 1e3;
+var DEFAULT_EXTERNAL_EXPIRY_DAYS = 90;
 var EXTERNAL_PASSWORD_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
 async function startLogin() {
   const current = await checkStoredAuthorization();
@@ -21570,7 +21572,8 @@ async function preparePublish(input) {
   validateAccessPolicyConfirmation(input.accessPolicyConfirmed);
   const permissions = accessPolicy === "collaborators" ? input.permissions ?? site?.permissions ?? [] : [];
   const externalPassword = accessPolicy === "external_link" ? normalizeExternalPassword(input.externalPassword) : "";
-  const externalExpiresAt = accessPolicy === "external_link" ? normalizeFutureDate(input.externalExpiresAt || new Date(Date.now() + 90 * 24 * 60 * 60 * 1e3)) : "";
+  const externalExpiryInput = String(input.externalExpiresAt || "").trim();
+  const externalExpiresAt = accessPolicy === "external_link" ? normalizeFutureDate(externalExpiryInput || new Date(Date.now() + DEFAULT_EXTERNAL_EXPIRY_DAYS * DAY_MS)) : "";
   const plan = {
     id: `plan_${randomUUID()}`,
     createdAt: (/* @__PURE__ */ new Date()).toISOString(),
@@ -21593,6 +21596,7 @@ async function preparePublish(input) {
     permissions,
     externalPassword,
     externalExpiresAt,
+    externalExpiryMode: accessPolicy === "external_link" ? externalExpiryInput ? "custom" : "default_90_days" : "",
     precheck: {
       fileCount: precheck.fileCount,
       totalBytes: precheck.totalBytes,
@@ -21771,8 +21775,25 @@ function confirmationSummary(plan, site) {
     accessPolicy: plan.accessPolicy,
     accessPolicyConfirmed: plan.accessPolicyConfirmed,
     collaborators: plan.permissions.map((permission) => ({ type: permission.scopeType, id: permission.scopeId, name: permission.scopeName })),
-    externalAccess: plan.accessPolicy === "external_link" ? { password: plan.externalPassword, expiresAt: plan.externalExpiresAt } : null,
+    externalAccess: plan.accessPolicy === "external_link" ? {
+      password: plan.externalPassword,
+      ...externalExpiryConfirmation(plan)
+    } : null,
     stableLinkWillRemain: plan.operation === "update"
+  };
+}
+function externalExpiryConfirmation(plan) {
+  const createdAt = Date.parse(plan.createdAt);
+  const expiresAt = Date.parse(plan.externalExpiresAt);
+  const validityDays = Math.max(1, Math.ceil((expiresAt - createdAt) / DAY_MS));
+  const defaultApplied = plan.externalExpiryMode !== "custom";
+  return {
+    expiresAt: plan.externalExpiresAt,
+    validityDays,
+    expiryMode: defaultApplied ? "default_90_days" : "custom",
+    defaultApplied,
+    canModifyBeforePublish: true,
+    displayText: defaultApplied ? `\u9ED8\u8BA4 ${validityDays} \u5929\uFF0C\u53EF\u5728\u6700\u7EC8\u786E\u8BA4\u524D\u4FEE\u6539` : `\u7528\u6237\u6307\u5B9A ${validityDays} \u5929`
   };
 }
 function resolvePublishTitle({ operation, titleDecision, title, suggestedTitle, existingTitle }) {
@@ -21944,7 +21965,7 @@ function toolError(code, message, recovery = "") {
 
 // src/server.js
 var server = new McpServer(
-  { name: "html-share-workbench", version: "0.4.4" },
+  { name: "html-share-workbench", version: "0.4.5" },
   {
     instructions: [
       "\u53D1\u5E03\u6216\u66F4\u65B0\u672C\u5730 HTML \u5FC5\u987B\u8D70\u540C\u4E00\u4E2A\u5B89\u5168\u6D41\u7A0B\uFF1A",
@@ -21953,9 +21974,10 @@ var server = new McpServer(
       "3. \u5982\u679C\u7528\u6237\u672A\u63D0\u4F9B\u4F5C\u54C1\u540D\u79F0\uFF0C\u5FC5\u987B\u8BE2\u95EE\u7528\u6237\u4F7F\u7528\u5EFA\u8BAE\u540D\u79F0\u8FD8\u662F\u81EA\u5B9A\u4E49\u540D\u79F0\uFF1B\u66F4\u65B0\u65F6\u4E5F\u53EF\u4EE5\u660E\u786E\u9009\u62E9\u4FDD\u7559\u7EBF\u4E0A\u540D\u79F0\u3002",
       "4. \u7CBE\u786E\u5224\u65AD\u65B0\u5EFA\u8FD8\u662F\u66F4\u65B0\uFF1B\u9700\u8981\u66F4\u65B0\u65F6\u7528 find_sites \u6216\u672C\u5730 manifest \u5B9A\u4F4D\uFF0C\u4E0D\u80FD\u6309\u76F8\u4F3C\u6807\u9898\u731C\u6D4B\u3002",
       "5. \u5982\u679C\u7528\u6237\u672A\u8BF4\u660E\u5206\u4EAB\u8303\u56F4\uFF0C\u5FC5\u987B\u8BA9\u7528\u6237\u660E\u786E\u9009\u62E9\u4EC5\u534F\u4F5C\u8005\u3001\u516C\u53F8\u5185\u90E8\u94FE\u63A5\u6216\u5916\u90E8\u5BC6\u7801\u94FE\u63A5\uFF0C\u7EDD\u4E0D\u80FD\u81EA\u884C\u9009\u62E9\u3002\u4EC5\u534F\u4F5C\u8005\u53EF\u89C1\u65F6\uFF0C\u7528 resolve_contacts \u89E3\u6790\u4EBA\u5458\u6216\u90E8\u95E8\u3002",
-      "6. \u8C03\u7528 prepare_publish \u65F6\u5FC5\u987B\u4F20\u5165\u7528\u6237\u5DF2\u660E\u786E\u4F5C\u51FA\u7684\u540D\u79F0\u51B3\u7B56\u548C\u5206\u4EAB\u8303\u56F4\u786E\u8BA4\uFF0C\u628A\u5B8C\u6574 confirmation \u5C55\u793A\u7ED9\u7528\u6237\u3002",
-      "7. \u5C55\u793A confirmation \u540E\u505C\u6B62\uFF1B\u53EA\u6709\u7528\u6237\u5728\u540E\u7EED\u660E\u786E\u786E\u8BA4\u540E\uFF0C\u624D\u80FD\u8C03\u7528 execute_publish\u3002",
-      "8. \u53D1\u5E03\u5B8C\u6210\u540E\u53EA\u628A recipientUrl \u4F5C\u4E3A\u7ED9\u63A5\u6536\u8005\u7684\u94FE\u63A5\uFF1Bexternal_link \u65F6\u7EDD\u4E0D\u80FD\u7528\u5185\u90E8 shareUrl \u4EE3\u66FF\u5916\u90E8\u5BC6\u7801\u94FE\u63A5\u3002",
+      "6. \u7528\u6237\u9009\u62E9\u5916\u90E8\u5BC6\u7801\u94FE\u63A5\u4F46\u672A\u6307\u5B9A\u6709\u6548\u671F\u65F6\uFF0C\u4E0D\u8981\u989D\u5916\u963B\u585E\u8BE2\u95EE\uFF1B\u660E\u786E\u544A\u77E5\u5C06\u4F7F\u7528\u9ED8\u8BA4 90 \u5929\u4E14\u53EF\u5728\u6700\u7EC8\u786E\u8BA4\u65F6\u4FEE\u6539\u3002",
+      "7. \u8C03\u7528 prepare_publish \u65F6\u5FC5\u987B\u4F20\u5165\u7528\u6237\u5DF2\u660E\u786E\u4F5C\u51FA\u7684\u540D\u79F0\u51B3\u7B56\u548C\u5206\u4EAB\u8303\u56F4\u786E\u8BA4\uFF0C\u628A\u5B8C\u6574 confirmation \u5C55\u793A\u7ED9\u7528\u6237\uFF1B\u5916\u90E8\u8BBF\u95EE\u5FC5\u987B\u540C\u65F6\u5C55\u793A\u6709\u6548\u5929\u6570\u3001\u51C6\u786E\u5230\u671F\u65F6\u95F4\u548C\u662F\u5426\u4F7F\u7528\u9ED8\u8BA4\u503C\u3002",
+      "8. \u5C55\u793A confirmation \u540E\u505C\u6B62\uFF1B\u7528\u6237\u53EF\u4EE5\u76F4\u63A5\u786E\u8BA4\uFF0C\u4E5F\u53EF\u4EE5\u5148\u4FEE\u6539\u5916\u94FE\u6709\u6548\u671F\u3002\u7528\u6237\u8981\u6C42\u4FEE\u6539\u65F6\u5FC5\u987B\u91CD\u65B0\u8C03\u7528 prepare_publish \u5E76\u5C55\u793A\u65B0\u7684 confirmation\uFF0C\u4E0D\u80FD\u6267\u884C\u65E7\u8BA1\u5212\u3002",
+      "9. \u53EA\u6709\u7528\u6237\u5BF9\u5F53\u524D\u6700\u65B0 confirmation \u660E\u786E\u786E\u8BA4\u540E\uFF0C\u624D\u80FD\u8C03\u7528 execute_publish\u3002\u53D1\u5E03\u5B8C\u6210\u540E\u53EA\u628A recipientUrl \u4F5C\u4E3A\u7ED9\u63A5\u6536\u8005\u7684\u94FE\u63A5\uFF1Bexternal_link \u65F6\u7EDD\u4E0D\u80FD\u7528\u5185\u90E8 shareUrl \u4EE3\u66FF\u5916\u90E8\u5BC6\u7801\u94FE\u63A5\u3002",
       "\u66F4\u65B0\u4F1A\u521B\u5EFA\u65B0\u7248\u672C\u5E76\u4FDD\u6301\u7A33\u5B9A\u5206\u4EAB\u94FE\u63A5\u3002\u7EDD\u4E0D\u80FD\u6CC4\u9732\u672C\u673A\u59D4\u6258\u4EE4\u724C\u3002"
     ].join("\n")
   }
@@ -22025,7 +22047,7 @@ register("prepare_publish", {
       scopeName: external_exports.string().min(1)
     })).optional(),
     externalPassword: external_exports.string().length(4).regex(/^[A-Za-z0-9]{4}$/).optional().describe("\u5916\u94FE\u5BC6\u7801\u5FC5\u987B\u6070\u597D\u4E3A 4 \u4F4D\uFF0C\u4E14\u4EC5\u53EF\u5305\u542B\u82F1\u6587\u5B57\u6BCD\u6216\u6570\u5B57\uFF1B\u7701\u7565\u5219\u81EA\u52A8\u751F\u6210"),
-    externalExpiresAt: external_exports.string().optional()
+    externalExpiresAt: external_exports.string().optional().describe("\u5916\u94FE\u51C6\u786E\u5931\u6548\u65F6\u95F4\uFF1BAI \u5C06\u201C30 \u5929\u201D\u7B49\u7528\u6237\u671F\u9650\u6362\u7B97\u4E3A\u672A\u6765\u7684 ISO \u65F6\u95F4\u3002\u7528\u6237\u672A\u6307\u5B9A\u65F6\u7701\u7565\uFF0CMCP \u4F7F\u7528\u9ED8\u8BA4 90 \u5929\u5E76\u5728\u6700\u7EC8\u786E\u8BA4\u4E2D\u660E\u786E\u5C55\u793A")
   },
   annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false }
 }, preparePublish);

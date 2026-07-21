@@ -16,6 +16,8 @@ import {
 } from './state.js';
 
 const PLAN_MAX_AGE_MS = 15 * 60 * 1000;
+const DAY_MS = 24 * 60 * 60 * 1000;
+const DEFAULT_EXTERNAL_EXPIRY_DAYS = 90;
 const EXTERNAL_PASSWORD_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
 
 export async function startLogin() {
@@ -225,8 +227,9 @@ export async function preparePublish(input) {
   const externalPassword = accessPolicy === 'external_link'
     ? normalizeExternalPassword(input.externalPassword)
     : '';
+  const externalExpiryInput = String(input.externalExpiresAt || '').trim();
   const externalExpiresAt = accessPolicy === 'external_link'
-    ? normalizeFutureDate(input.externalExpiresAt || new Date(Date.now() + 90 * 24 * 60 * 60 * 1000))
+    ? normalizeFutureDate(externalExpiryInput || new Date(Date.now() + DEFAULT_EXTERNAL_EXPIRY_DAYS * DAY_MS))
     : '';
   const plan = {
     id: `plan_${randomUUID()}`,
@@ -250,6 +253,9 @@ export async function preparePublish(input) {
     permissions,
     externalPassword,
     externalExpiresAt,
+    externalExpiryMode: accessPolicy === 'external_link'
+      ? (externalExpiryInput ? 'custom' : 'default_90_days')
+      : '',
     precheck: {
       fileCount: precheck.fileCount,
       totalBytes: precheck.totalBytes,
@@ -441,9 +447,29 @@ function confirmationSummary(plan, site) {
     accessPolicyConfirmed: plan.accessPolicyConfirmed,
     collaborators: plan.permissions.map((permission) => ({ type: permission.scopeType, id: permission.scopeId, name: permission.scopeName })),
     externalAccess: plan.accessPolicy === 'external_link'
-      ? { password: plan.externalPassword, expiresAt: plan.externalExpiresAt }
+      ? {
+          password: plan.externalPassword,
+          ...externalExpiryConfirmation(plan)
+        }
       : null,
     stableLinkWillRemain: plan.operation === 'update'
+  };
+}
+
+export function externalExpiryConfirmation(plan) {
+  const createdAt = Date.parse(plan.createdAt);
+  const expiresAt = Date.parse(plan.externalExpiresAt);
+  const validityDays = Math.max(1, Math.ceil((expiresAt - createdAt) / DAY_MS));
+  const defaultApplied = plan.externalExpiryMode !== 'custom';
+  return {
+    expiresAt: plan.externalExpiresAt,
+    validityDays,
+    expiryMode: defaultApplied ? 'default_90_days' : 'custom',
+    defaultApplied,
+    canModifyBeforePublish: true,
+    displayText: defaultApplied
+      ? `默认 ${validityDays} 天，可在最终确认前修改`
+      : `用户指定 ${validityDays} 天`
   };
 }
 

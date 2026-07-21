@@ -25,7 +25,7 @@
 }
 ```
 
-三种分享策略分别是 `collaborators`、`company_link` 和 `external_link`。`accessPolicy` 只能来自用户在当前发布对话中的明确选择，并同时传入 `accessPolicyConfirmed: true`。外部访问必须包含密码和未来的失效时间。密码必须恰好为 4 位 ASCII 字母或数字；省略时由服务端生成合规密码和 90 天有效期。
+三种分享策略分别是 `collaborators`、`company_link` 和 `external_link`。`accessPolicy` 只能来自用户在当前发布对话中的明确选择，并同时传入 `accessPolicyConfirmed: true`。外部访问必须包含密码和未来的失效时间。密码必须恰好为 4 位 ASCII 字母或数字；省略时由服务端生成合规密码。`externalExpiresAt` 省略时 MCP 使用默认 90 天，并在 `confirmation.externalAccess` 中返回 `validityDays`、`expiresAt`、`expiryMode`、`defaultApplied` 和可修改提示。AI 应展示“90 天（到 YYYY-MM-DD，可修改）”，不额外增加一个阻塞式问题。用户说“30 天”等相对期限时，由 AI 换算为未来的准确 ISO 时间；确认后发生修改必须重新调用 `prepare_publish` 并使用新 `planId`。
 
 `precheck_package` 会返回完整 `htmlCandidates`、`suggestedEntryFile` 和 `requiresEntrySelection`。候选超过一个时，即使建议入口是 `index.html`，也必须让用户明确确认，并在 `prepare_publish` 中同时传 `entryFile` 和 `entryFileConfirmed: true`。
 
