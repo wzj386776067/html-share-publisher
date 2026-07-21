@@ -11,10 +11,12 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { inspectSource, packageSource, readLocalManifest } from '../src/package-source.js';
 import {
   generateExternalPassword,
+  normalizePrecheckResult,
   normalizeSiteId,
   normalizeSiteReference,
   resolvePublishTitle,
-  validateAccessPolicyConfirmation
+  validateAccessPolicyConfirmation,
+  validateEntryFileConfirmation
 } from '../src/service.js';
 
 test('exposes the complete safe publish tool set over MCP stdio', async () => {
@@ -49,9 +51,59 @@ test('exposes the complete safe publish tool set over MCP stdio', async () => {
     assert.equal(passwordSchema.minLength, 4);
     assert.equal(passwordSchema.maxLength, 4);
     assert.equal(passwordSchema.pattern, '^[A-Za-z0-9]{4}$');
+    assert.equal(prepare.inputSchema.properties.entryFileConfirmed.const, true);
   } finally {
     await client.close();
   }
+});
+
+test('normalizes old and new precheck contracts and requires confirmed multi-html entry selection', () => {
+  const oldContract = normalizePrecheckResult({
+    htmlFiles: ['about.html', 'index.html'],
+    entryFile: 'index.html',
+    defaultEntryFile: 'index.html'
+  });
+  assert.deepEqual(oldContract.htmlCandidates, ['about.html', 'index.html']);
+  assert.equal(oldContract.suggestedEntryFile, 'index.html');
+  assert.equal(oldContract.requiresEntrySelection, true);
+
+  const newContract = normalizePrecheckResult({
+    htmlCandidates: ['about.html', 'home.html'],
+    entryFile: null,
+    suggestedEntryFile: null,
+    requiresEntrySelection: true
+  });
+  assert.deepEqual(newContract.htmlCandidates, ['about.html', 'home.html']);
+  assert.equal(newContract.requiresEntrySelection, true);
+
+  assert.throws(
+    () => validateEntryFileConfirmation({ htmlCandidates: oldContract.htmlCandidates }),
+    (error) => error.code === 'ENTRY_REQUIRED'
+  );
+  assert.throws(
+    () => validateEntryFileConfirmation({
+      htmlCandidates: oldContract.htmlCandidates,
+      entryFile: 'index.html'
+    }),
+    (error) => error.code === 'ENTRY_CONFIRMATION_REQUIRED'
+  );
+  assert.throws(
+    () => validateEntryFileConfirmation({
+      htmlCandidates: oldContract.htmlCandidates,
+      entryFile: 'missing.html',
+      entryFileConfirmed: true
+    }),
+    (error) => error.code === 'ENTRY_INVALID'
+  );
+  assert.equal(validateEntryFileConfirmation({
+    htmlCandidates: oldContract.htmlCandidates,
+    entryFile: 'index.html',
+    entryFileConfirmed: true
+  }), 'index.html');
+  assert.equal(validateEntryFileConfirmation({
+    htmlCandidates: ['slides.html'],
+    resolvedEntryFile: 'slides.html'
+  }), 'slides.html');
 });
 
 test('requires explicit title and access-policy decisions before preparing a publish', () => {
