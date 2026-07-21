@@ -28,6 +28,7 @@ export function clearPendingAuth() {
 }
 
 export function writePlan(plan) {
+  cleanupExpiredPlans();
   const planPath = path.join(plansDir, `${plan.id}.json`);
   writePrivateJson(planPath, plan);
   return planPath;
@@ -35,7 +36,13 @@ export function writePlan(plan) {
 
 export function readPlan(planId) {
   if (!/^(?:plan|status_plan)_[A-Za-z0-9-]+$/.test(String(planId))) return null;
-  return readJson(path.join(plansDir, `${planId}.json`));
+  const planPath = path.join(plansDir, `${planId}.json`);
+  const plan = readJson(planPath);
+  if (plan?.expiresAt && Date.parse(plan.expiresAt) <= Date.now()) {
+    fs.rmSync(planPath, { force: true });
+    return null;
+  }
+  return plan;
 }
 
 export function deletePlan(planId) {
@@ -46,6 +53,24 @@ export function deletePlan(planId) {
 
 export function writeManifest(manifestPath, manifest) {
   writePrivateJson(manifestPath, manifest, 0o644);
+}
+
+function cleanupExpiredPlans() {
+  let names;
+  try {
+    names = fs.readdirSync(plansDir);
+  } catch (error) {
+    if (error.code === 'ENOENT') return;
+    throw error;
+  }
+  for (const name of names) {
+    if (!/^(?:plan|status_plan)_[A-Za-z0-9-]+\.json$/.test(name)) continue;
+    const planPath = path.join(plansDir, name);
+    const plan = readJson(planPath);
+    if (!plan || (plan.expiresAt && Date.parse(plan.expiresAt) <= Date.now())) {
+      fs.rmSync(planPath, { force: true });
+    }
+  }
 }
 
 function readJson(filePath) {

@@ -1,7 +1,7 @@
 import { randomInt, randomUUID } from 'node:crypto';
 import { apiBaseUrl, clientName } from './config.js';
 import { apiRequest, uploadZip } from './api.js';
-import { inspectSource, packageSource, readLocalManifest } from './package-source.js';
+import { inspectSource, packageSource, precheckSourcePackage, readLocalManifest } from './package-source.js';
 import {
   clearCredentials,
   clearPendingAuth,
@@ -100,32 +100,19 @@ export async function revokeAuthorization() {
 export async function precheckPackage({ sourcePath, entryFile = '' }) {
   await requireAuthorization();
   const source = inspectSource(sourcePath);
-  const packaged = packageSource(source);
-  try {
-    const { data } = await uploadZip('/api/uploads/precheck', packaged.zipPath, {
-      ...(entryFile ? { 'x-entry-file': encodeURIComponent(entryFile) } : {})
-    });
-    const normalized = normalizePrecheckResult(data);
-    const localManifest = readLocalManifest(source);
-    return {
-      status: 'ready',
-      sourcePath: source.sourcePath,
-      sourceKind: source.kind,
-      suggestedTitle: source.defaultTitle,
-      fingerprint: source.fingerprint,
-      htmlCandidates: normalized.htmlCandidates,
-      entryFile: normalized.entryFile,
-      suggestedEntryFile: normalized.suggestedEntryFile,
-      requiresEntrySelection: normalized.requiresEntrySelection,
-      fileCount: data.fileCount,
-      totalBytes: data.totalBytes,
-      warnings: source.warnings,
-      localBinding: localManifest,
-      suggestedOperation: localManifest?.siteId ? 'update' : 'new'
-    };
-  } finally {
-    packaged.cleanup();
-  }
+  const precheck = precheckSourcePackage(source, { entryFile });
+  const localManifest = readLocalManifest(source);
+  return {
+    status: 'ready',
+    sourcePath: source.sourcePath,
+    sourceKind: source.kind,
+    suggestedTitle: source.defaultTitle,
+    fingerprint: source.fingerprint,
+    ...precheck,
+    warnings: source.warnings,
+    localBinding: localManifest,
+    suggestedOperation: localManifest?.siteId ? 'update' : 'new'
+  };
 }
 
 export async function findSites({ query = '' } = {}) {
@@ -136,7 +123,7 @@ export async function findSites({ query = '' } = {}) {
   if (explicitReference && (reference.siteId || reference.publicCode)) {
     try {
       const site = await resolveSiteReference(reference);
-      const sites = authorization.user.role === 'admin' || site.ownerId === authorization.user.id
+      const sites = site.ownerId === authorization.user.id
         ? [siteSummary(site)]
         : [];
       return { status: 'ok', sites, count: sites.length };
@@ -149,7 +136,7 @@ export async function findSites({ query = '' } = {}) {
   const { data } = await apiRequest('/api/sites');
   const normalizedQuery = normalize(query);
   const sites = data.sites
-    .filter((site) => authorization.user.role === 'admin' || site.ownerId === authorization.user.id)
+    .filter((site) => site.ownerId === authorization.user.id)
     .filter((site) => {
       if (explicitReference && reference.siteId) return site.id === reference.siteId;
       if (explicitReference && reference.publicCode) return site.publicCode === reference.publicCode;
@@ -204,11 +191,17 @@ export async function prepareSiteStatusChange({ siteId, action }) {
     throw toolError('UNSUPPORTED_SITE_STATE', `当前作品状态 ${site.status} 不支持该操作。`, '请刷新作品状态后重试。');
   }
 
+  const { data: serverPlan } = await apiRequest('/api/mcp/status-plans', {
+    method: 'POST',
+    body: { siteId: site.id, action: normalizedAction }
+  });
   const plan = {
     id: `status_plan_${randomUUID()}`,
     kind: 'site_status_change',
     createdAt: new Date().toISOString(),
-    expiresAt: new Date(Date.now() + PLAN_MAX_AGE_MS).toISOString(),
+    expiresAt: serverPlan.expiresAt,
+    serverPlanId: serverPlan.planId,
+    serverPlanToken: serverPlan.planToken,
     siteId: site.id,
     title: site.title,
     action: normalizedAction,
@@ -253,9 +246,11 @@ export async function executeSiteStatusChange({ planId, confirmed }) {
   const endpoint = plan.action === 'unpublish' ? 'unpublish' : 'publish';
   const { data: updated } = await apiRequest(`/api/sites/${encodeURIComponent(plan.siteId)}/${endpoint}`, {
     method: 'POST',
+    headers: { 'x-server-status-plan': plan.serverPlanToken },
     body: {
       statusChangeContext: {
         planId: plan.id,
+        serverPlanId: plan.serverPlanId,
         siteId: plan.siteId,
         action: plan.action,
         expectedStatus: plan.expectedStatus,
@@ -384,6 +379,17 @@ export async function preparePublish(input) {
       contentHash: precheck.fingerprint
     }
   };
+  const { data: serverPlan } = await apiRequest('/api/mcp/publish-plans', {
+    method: 'POST',
+    body: {
+      operation,
+      siteId: site?.id || '',
+      metadata: publishMetadataForPlan(plan, site?.alias || '')
+    }
+  });
+  plan.serverPlanId = serverPlan.planId;
+  plan.serverPlanToken = serverPlan.planToken;
+  plan.expiresAt = serverPlan.expiresAt;
   writePlan(plan);
 
   return {
@@ -410,6 +416,7 @@ export async function executePublish({ planId, confirmed }) {
   }
   const source = inspectSource(plan.sourcePath);
   if (source.fingerprint !== plan.fingerprint) {
+    deletePlan(planId);
     throw toolError('SOURCE_CHANGED', '确认后本地文件发生了变化，已停止发布。', '重新调用 prepare_publish，让用户确认最新内容。');
   }
 
@@ -462,10 +469,32 @@ export async function executePublish({ planId, confirmed }) {
 
 async function createSite(plan, zipPath) {
   const publishContext = publishContextForPlan(plan);
-  const metadata = {
+  const metadata = publishMetadataForPlan(plan, '');
+  return (await uploadZip('/api/sites', zipPath, {
+    'x-site-metadata': encodeURIComponent(JSON.stringify(metadata)),
+    'x-publish-context': encodeURIComponent(JSON.stringify(publishContext)),
+    'x-idempotency-key': plan.serverPlanId,
+    'x-server-publish-plan': plan.serverPlanToken
+  })).data;
+}
+
+async function updateSite(plan, zipPath) {
+  const publishContext = publishContextForPlan(plan);
+  const current = (await apiRequest(`/api/sites/${encodeURIComponent(plan.siteId)}`)).data;
+  const metadata = publishMetadataForPlan(plan, current.alias || '');
+  return (await uploadZip(`/api/sites/${encodeURIComponent(plan.siteId)}/publish-version`, zipPath, {
+    'x-site-metadata': encodeURIComponent(JSON.stringify(metadata)),
+    'x-publish-context': encodeURIComponent(JSON.stringify(publishContext)),
+    'x-idempotency-key': plan.serverPlanId,
+    'x-server-publish-plan': plan.serverPlanToken
+  })).data;
+}
+
+function publishMetadataForPlan(plan, alias) {
+  return {
     title: plan.title,
     description: plan.description,
-    alias: '',
+    alias,
     accessPolicy: plan.accessPolicy,
     permissions: plan.permissions,
     entryFile: plan.entryFile,
@@ -473,33 +502,6 @@ async function createSite(plan, zipPath) {
     externalPassword: plan.accessPolicy === 'external_link' ? plan.externalPassword : undefined,
     externalExpiresAt: plan.accessPolicy === 'external_link' ? plan.externalExpiresAt : undefined
   };
-  return (await uploadZip('/api/sites', zipPath, {
-    'x-site-metadata': encodeURIComponent(JSON.stringify(metadata)),
-    'x-publish-context': encodeURIComponent(JSON.stringify(publishContext))
-  })).data;
-}
-
-async function updateSite(plan, zipPath) {
-  const publishContext = publishContextForPlan(plan);
-  const current = (await apiRequest(`/api/sites/${encodeURIComponent(plan.siteId)}`)).data;
-  await uploadZip(`/api/sites/${encodeURIComponent(plan.siteId)}/versions`, zipPath, {
-    'x-version-entry-file': encodeURIComponent(plan.entryFile),
-    'x-publish-context': encodeURIComponent(JSON.stringify(publishContext)),
-    ...(plan.versionNote ? { 'x-version-note': encodeURIComponent(plan.versionNote) } : {})
-  });
-  return (await apiRequest(`/api/sites/${encodeURIComponent(plan.siteId)}`, {
-    method: 'POST',
-    body: {
-      title: plan.title,
-      description: plan.description,
-      alias: current.alias || '',
-      accessPolicy: plan.accessPolicy,
-      permissions: plan.permissions,
-      externalPassword: plan.accessPolicy === 'external_link' ? plan.externalPassword : undefined,
-      externalExpiresAt: plan.accessPolicy === 'external_link' ? plan.externalExpiresAt : undefined,
-      publishContext
-    }
-  })).data;
 }
 
 function publishContextForPlan(plan) {
@@ -521,7 +523,7 @@ async function findManageableSite(reference, user, input) {
     }
     throw error;
   }
-  if (user.role !== 'admin' && site.ownerId !== user.id) {
+  if (site.ownerId !== user.id) {
     throw toolError('SITE_NOT_MANAGEABLE', '当前账号不是该作品的发布者，不能更新。', '请切换到发布者账号，或新建作品。');
   }
   return site;

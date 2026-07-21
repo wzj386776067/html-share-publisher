@@ -38,13 +38,18 @@ try {
     }
     $ArchivePath = Join-Path $TemporaryRoot $Asset
     $ChecksumPath = "$ArchivePath.sha256"
+    $SignaturePath = "$ArchivePath.sig"
     $DisplayVersion = if ($Version) { $Version } else { "latest" }
     Write-Host "Downloading HTML Share Publisher $DisplayVersion..."
     Invoke-WebRequest -UseBasicParsing -Uri "$ReleaseBase/$Asset" -OutFile $ArchivePath
     Invoke-WebRequest -UseBasicParsing -Uri "$ReleaseBase/$Asset.sha256" -OutFile $ChecksumPath
+    Invoke-WebRequest -UseBasicParsing -Uri "$ReleaseBase/$Asset.sig" -OutFile $SignaturePath
     $Expected = ((Get-Content $ChecksumPath -Raw).Trim() -split '\s+')[0].ToLowerInvariant()
     $Actual = (Get-FileHash -Algorithm SHA256 $ArchivePath).Hash.ToLowerInvariant()
     if (-not $Expected -or $Expected -ne $Actual) { throw "Release checksum verification failed." }
+    $VerifyScript = 'const c=require("crypto"),f=require("fs");const p=`-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAQy+MczWmB86XBwm3YAzVodB3a6mebzNziTjhNQ0sWzk=\n-----END PUBLIC KEY-----`;if(!c.verify(null,f.readFileSync(process.argv[1]),p,f.readFileSync(process.argv[2])))process.exit(1)'
+    & $NodePath -e $VerifyScript $ArchivePath $SignaturePath
+    if ($LASTEXITCODE -ne 0) { throw "Release signature verification failed." }
     $Extracted = Join-Path $TemporaryRoot "release"
     New-Item -ItemType Directory -Path $Extracted | Out-Null
     & $TarPath -xzf $ArchivePath -C $Extracted

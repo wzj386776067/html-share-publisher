@@ -1,16 +1,24 @@
 import assert from 'node:assert/strict';
+import { generateKeyPairSync, sign } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { isNewerVersion, maybeAutoUpdate, resolveInstalledServer } from '../launcher.mjs';
+import { isNewerVersion, maybeAutoUpdate, resolveInstalledServer, verifyReleaseSignature } from '../launcher.mjs';
 
 test('compares release versions without downgrading', () => {
   assert.equal(isNewerVersion('v0.3.1', 'v0.3.0'), true);
   assert.equal(isNewerVersion('v0.3.0', 'v0.3.0'), false);
   assert.equal(isNewerVersion('v0.2.9', 'v0.3.0'), false);
   assert.equal(isNewerVersion('latest', 'v0.3.0'), false);
+});
+
+test('rejects release signatures from any key except the pinned release key', () => {
+  const { privateKey } = generateKeyPairSync('ed25519');
+  const archive = Buffer.from('untrusted release');
+  assert.equal(verifyReleaseSignature(archive, sign(null, archive, privateKey)), false);
+  assert.equal(verifyReleaseSignature(archive, Buffer.from('invalid')), false);
 });
 
 test('keeps the installed MCP available when update checks fail', async () => {

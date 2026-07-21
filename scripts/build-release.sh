@@ -25,7 +25,7 @@ printf '%s\n' "$version" > "$package_dir/VERSION"
 chmod +x "$package_dir/install.sh" "$package_dir/launcher.mjs" "$package_dir/mcp/src/server.js"
 
 mkdir -p "$output_dir"
-rm -f "$asset" "$asset.sha256"
+rm -f "$asset" "$asset.sha256" "$asset.sig"
 COPYFILE_DISABLE=1 tar -czf "$asset" -C "$stage_dir" html-share-publisher
 
 if command -v shasum >/dev/null 2>&1; then
@@ -34,5 +34,9 @@ else
   checksum="$(sha256sum "$asset" | awk '{print $1}')"
 fi
 printf '%s  %s\n' "$checksum" "$(basename "$asset")" > "$asset.sha256"
+
+if [[ -n "${HTML_SHARE_RELEASE_SIGNING_KEY_FILE:-}" ]]; then
+  node "$root_dir/scripts/sign-release.mjs" "$asset" "$HTML_SHARE_RELEASE_SIGNING_KEY_FILE"
+fi
 
 echo "$asset"

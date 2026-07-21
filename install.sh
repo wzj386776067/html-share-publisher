@@ -111,6 +111,7 @@ if [[ -z "$PAYLOAD_DIR" ]]; then
   echo "Downloading HTML Share Publisher ${VERSION:-latest}..."
   curl -fL --retry 3 --retry-delay 1 -o "$temp_dir/$asset" "$release_base/$asset"
   curl -fL --retry 3 --retry-delay 1 -o "$temp_dir/$asset.sha256" "$release_base/$asset.sha256"
+  curl -fL --retry 3 --retry-delay 1 -o "$temp_dir/$asset.sig" "$release_base/$asset.sig"
 
   expected_checksum="$(awk 'NR == 1 { print $1 }' "$temp_dir/$asset.sha256")"
   actual_checksum="$(sha256_file "$temp_dir/$asset")"
@@ -118,6 +119,10 @@ if [[ -z "$PAYLOAD_DIR" ]]; then
     echo "Release checksum verification failed." >&2
     exit 1
   fi
+  node -e 'const c=require("crypto"),f=require("fs");const p=`-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAQy+MczWmB86XBwm3YAzVodB3a6mebzNziTjhNQ0sWzk=\n-----END PUBLIC KEY-----`;if(!c.verify(null,f.readFileSync(process.argv[1]),p,f.readFileSync(process.argv[2])))process.exit(1)' "$temp_dir/$asset" "$temp_dir/$asset.sig" || {
+    echo "Release signature verification failed." >&2
+    exit 1
+  }
 
   mkdir -p "$temp_dir/release"
   tar -xzf "$temp_dir/$asset" -C "$temp_dir/release"

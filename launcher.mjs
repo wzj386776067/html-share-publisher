@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { createHash } from 'node:crypto';
+import { createHash, verify } from 'node:crypto';
 import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -11,6 +11,9 @@ const RELEASE_API = `https://api.github.com/repos/${REPOSITORY}/releases/latest`
 const ASSET_NAME = 'html-share-publisher.tar.gz';
 const UPDATE_INTERVAL_MS = 24 * 60 * 60 * 1000;
 const FAILURE_RETRY_MS = 60 * 60 * 1000;
+const RELEASE_SIGNING_PUBLIC_KEY = `-----BEGIN PUBLIC KEY-----
+MCowBQYDK2VwAyEAQy+MczWmB86XBwm3YAzVodB3a6mebzNziTjhNQ0sWzk=
+-----END PUBLIC KEY-----`;
 
 export async function maybeAutoUpdate(options = {}) {
   const env = options.env || process.env;
@@ -151,10 +154,11 @@ async function fetchLatestRelease({ apiUrl, fetchImpl }) {
   const assets = Array.isArray(payload.assets) ? payload.assets : [];
   const archive = assets.find((asset) => asset.name === ASSET_NAME)?.browser_download_url;
   const checksum = assets.find((asset) => asset.name === `${ASSET_NAME}.sha256`)?.browser_download_url;
-  if (!/^v\d+\.\d+\.\d+$/.test(String(payload.tag_name || '')) || !archive || !checksum) {
+  const signature = assets.find((asset) => asset.name === `${ASSET_NAME}.sig`)?.browser_download_url;
+  if (!/^v\d+\.\d+\.\d+$/.test(String(payload.tag_name || '')) || !archive || !checksum || !signature) {
     throw new Error('latest release metadata is incomplete');
   }
-  return { tagName: payload.tag_name, archiveUrl: archive, checksumUrl: checksum };
+  return { tagName: payload.tag_name, archiveUrl: archive, checksumUrl: checksum, signatureUrl: signature };
 }
 
 async function installRelease({ release, installRoot, apiBase, fetchImpl }) {
@@ -162,15 +166,17 @@ async function installRelease({ release, installRoot, apiBase, fetchImpl }) {
   try {
     const archivePath = path.join(temporaryRoot, ASSET_NAME);
     const checksumPath = `${archivePath}.sha256`;
-    const [archive, checksum] = await Promise.all([
+    const [archive, checksum, signature] = await Promise.all([
       downloadBuffer(fetchImpl, release.archiveUrl, 30000),
-      downloadBuffer(fetchImpl, release.checksumUrl, 10000)
+      downloadBuffer(fetchImpl, release.checksumUrl, 10000),
+      downloadBuffer(fetchImpl, release.signatureUrl, 10000)
     ]);
     fs.writeFileSync(archivePath, archive);
     fs.writeFileSync(checksumPath, checksum);
     const expected = checksum.toString('utf8').trim().split(/\s+/)[0]?.toLowerCase();
     const actual = createHash('sha256').update(archive).digest('hex');
     if (!expected || expected !== actual) throw new Error('release checksum verification failed');
+    if (!verifyReleaseSignature(archive, signature)) throw new Error('release signature verification failed');
 
     const extractedRoot = path.join(temporaryRoot, 'release');
     fs.mkdirSync(extractedRoot);
@@ -200,6 +206,14 @@ async function installRelease({ release, installRoot, apiBase, fetchImpl }) {
 
   } finally {
     fs.rmSync(temporaryRoot, { recursive: true, force: true });
+  }
+}
+
+export function verifyReleaseSignature(archive, signature) {
+  try {
+    return verify(null, archive, RELEASE_SIGNING_PUBLIC_KEY, signature);
+  } catch {
+    return false;
   }
 }
 

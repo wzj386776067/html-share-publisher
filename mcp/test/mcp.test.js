@@ -8,7 +8,7 @@ import test from 'node:test';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 
-import { inspectSource, packageSource, readLocalManifest } from '../src/package-source.js';
+import { inspectSource, packageSource, precheckSourcePackage, readLocalManifest } from '../src/package-source.js';
 import {
   generateExternalPassword,
   externalExpiryConfirmation,
@@ -275,6 +275,27 @@ test('rejects sensitive local files before packaging a directory', () => {
 
     assert.throws(() => inspectSource(root), /疑似敏感文件/);
   }
+});
+
+test('prechecks ZIP packages locally and rejects embedded secrets', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'html-share-mcp-zip-precheck-'));
+  fs.writeFileSync(path.join(root, 'index.html'), '<h1>Hello</h1>');
+  fs.writeFileSync(path.join(root, '.env.production'), 'SECRET=value');
+  const zipPath = path.join(root, 'site.zip');
+  execFileSync('zip', ['-q', zipPath, 'index.html', '.env.production'], { cwd: root });
+
+  assert.throws(() => precheckSourcePackage(inspectSource(zipPath)), /疑似敏感文件/);
+});
+
+test('prechecks multiple HTML entries without uploading them', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'html-share-mcp-local-precheck-'));
+  fs.writeFileSync(path.join(root, 'index.html'), '<h1>Home</h1>');
+  fs.writeFileSync(path.join(root, 'about.html'), '<h1>About</h1>');
+
+  const result = precheckSourcePackage(inspectSource(root));
+  assert.deepEqual(result.htmlCandidates, ['about.html', 'index.html']);
+  assert.equal(result.suggestedEntryFile, 'index.html');
+  assert.equal(result.requiresEntrySelection, true);
 });
 
 test('rejects symlinks inside a publish directory', () => {

@@ -1,6 +1,6 @@
 {
   "name": "@bicheng/html-share-mcp",
-  "version": "0.4.6",
+  "version": "0.4.7",
   "private": true,
   "type": "module",
   "bin": {
@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.29.0",
+    "fflate": "^0.8.2",
     "zod": "^3.25.76"
   },
   "devDependencies": {

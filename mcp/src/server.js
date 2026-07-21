@@ -17,7 +17,7 @@ import {
 } from './service.js';
 
 const server = new McpServer(
-  { name: 'html-share-workbench', version: '0.4.6' },
+  { name: 'html-share-workbench', version: '0.4.7' },
   {
     instructions: [
       '发布或更新本地 HTML 必须走同一个安全流程：',
@@ -60,7 +60,7 @@ register('revoke_authorization', {
 
 register('precheck_package', {
   title: '预检 HTML 作品',
-  description: '读取本地目录、HTML 或 ZIP，完成打包与服务端安全预检，不会发布。',
+  description: '只在本机读取目录、HTML 或 ZIP，完成入口、大小和敏感文件预检，不会上传或发布。',
   inputSchema: {
     sourcePath: z.string().min(1).describe('本地作品目录、HTML 文件或 ZIP 的绝对路径'),
     entryFile: z.string().optional().describe('多个 HTML 时明确指定的包内入口路径')

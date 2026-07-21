@@ -30,7 +30,19 @@ jobs:
       - name: Test installer and launcher
         run: node --test installer/*.test.mjs
       - name: Build release assets
-        run: bash scripts/build-release.sh "$GITHUB_REF_NAME"
+        env:
+          RELEASE_SIGNING_PRIVATE_KEY: ${{ secrets.RELEASE_SIGNING_PRIVATE_KEY }}
+        run: |
+          test -n "$RELEASE_SIGNING_PRIVATE_KEY"
+          signing_key="$RUNNER_TEMP/html-share-release-signing-key.pem"
+          printf '%s' "$RELEASE_SIGNING_PRIVATE_KEY" > "$signing_key"
+          chmod 600 "$signing_key"
+          HTML_SHARE_RELEASE_SIGNING_KEY_FILE="$signing_key" bash scripts/build-release.sh "$GITHUB_REF_NAME"
+          test -s output/releases/html-share-publisher.tar.gz.sig
+          node -e 'const c=require("crypto"),f=require("fs");if(!c.verify(null,f.readFileSync(process.argv[1]),f.readFileSync(process.argv[2]),f.readFileSync(process.argv[3])))process.exit(1)' \
+            output/releases/html-share-publisher.tar.gz \
+            release-signing-public.pem \
+            output/releases/html-share-publisher.tar.gz.sig
       - name: Test release installation
         run: |
           mkdir -p "$RUNNER_TEMP/release"
@@ -58,5 +70,6 @@ jobs:
           gh release create "$GITHUB_REF_NAME" \
             output/releases/html-share-publisher.tar.gz \
             output/releases/html-share-publisher.tar.gz.sha256 \
+            output/releases/html-share-publisher.tar.gz.sig \
             --title "HTML Share Publisher $GITHUB_REF_NAME" \
             --generate-notes

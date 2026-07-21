@@ -60,7 +60,7 @@ Windows：
 irm https://raw.githubusercontent.com/wzj386776067/html-share-publisher/main/install.ps1 | iex
 ```
 
-安装器会从最新 GitHub Release 下载发行包，校验 SHA-256，安装到：
+安装器会从最新 GitHub Release 下载发行包，同时校验 SHA-256 和内置公钥对应的 Ed25519 发布签名，安装到：
 
 ```text
 ~/.local/share/html-share-publisher
@@ -102,7 +102,7 @@ codex plugin add html-share-publisher@bicheng-html-share
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/wzj386776067/html-share-publisher/main/install.sh \
-  | bash -s -- --version v0.4.6
+  | bash -s -- --version v0.4.7
 ```
 
 重复运行安装命令即可升级或修复安装。发布凭证保存在 `~/.config/html-share`，升级不会删除凭证。
@@ -123,6 +123,9 @@ codex plugin marketplace remove bicheng-html-share
 - 默认 API 为 `https://share.bi-cheng.cn`。
 - 钉钉 `AppSecret` 只存在于公司服务端，本地客户端不会获取它。
 - 本地只保存工作台签发的可撤销短期令牌，Skill 禁止展示或索取该令牌。
+- 自动更新只接受通过仓库内固定公钥验证的签名发行包；校验失败时继续运行当前版本。
+- 发布和下架/恢复计划由服务端签名并绑定当前钉钉用户、作品、元数据和 15 分钟有效期。
+- AI 委托令牌不继承浏览器管理员权限，只能管理当前用户自己发布的作品。
 - MCP 初始化说明和工具描述都包含固定安全流程，不依赖某一种客户端的 Skill 实现。
 - `prepare_publish` 必须包含用户明确作出的作品名称决策和分享范围确认，否则不会生成发布计划。
 - 只有 `execute_publish` 会执行远程发布，并且必须等待用户在聊天中确认完整摘要。
