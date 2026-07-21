@@ -103,6 +103,7 @@ export async function precheckPackage({ sourcePath, entryFile = '' }) {
     const { data } = await uploadZip('/api/uploads/precheck', packaged.zipPath, {
       ...(entryFile ? { 'x-entry-file': encodeURIComponent(entryFile) } : {})
     });
+    const normalized = normalizePrecheckResult(data);
     const localManifest = readLocalManifest(source);
     return {
       status: 'ready',
@@ -110,9 +111,10 @@ export async function precheckPackage({ sourcePath, entryFile = '' }) {
       sourceKind: source.kind,
       suggestedTitle: source.defaultTitle,
       fingerprint: source.fingerprint,
-      htmlCandidates: data.htmlCandidates,
-      entryFile: data.entryFile,
-      requiresEntrySelection: data.requiresEntrySelection,
+      htmlCandidates: normalized.htmlCandidates,
+      entryFile: normalized.entryFile,
+      suggestedEntryFile: normalized.suggestedEntryFile,
+      requiresEntrySelection: normalized.requiresEntrySelection,
       fileCount: data.fileCount,
       totalBytes: data.totalBytes,
       warnings: source.warnings,
@@ -188,9 +190,12 @@ export async function preparePublish(input) {
   const authorization = await requireAuthorization();
   const source = inspectSource(input.sourcePath);
   const precheck = await precheckPackage({ sourcePath: input.sourcePath, entryFile: input.entryFile || '' });
-  if (precheck.requiresEntrySelection && !input.entryFile) {
-    throw toolError('ENTRY_REQUIRED', '作品包含多个 HTML，需要明确入口文件。', `请从以下文件选择：${precheck.htmlCandidates.join('、')}`);
-  }
+  const entryFile = validateEntryFileConfirmation({
+    htmlCandidates: precheck.htmlCandidates,
+    entryFile: input.entryFile,
+    resolvedEntryFile: precheck.entryFile,
+    entryFileConfirmed: input.entryFileConfirmed
+  });
 
   const operation = input.operation;
   let site = null;
@@ -236,7 +241,8 @@ export async function preparePublish(input) {
     title,
     titleDecision: input.titleDecision,
     description: String(input.description ?? site?.description ?? '').trim(),
-    entryFile: precheck.entryFile,
+    entryFile,
+    entryFileConfirmed: precheck.htmlCandidates.length > 1,
     versionNote: String(input.versionNote || '').trim(),
     accessPolicy,
     accessPolicyDecision: accessPolicy,
@@ -423,6 +429,7 @@ function confirmationSummary(plan, site) {
     operation: plan.operation === 'new' ? '新建作品' : '更新已有作品',
     updateTarget: site ? { siteId: site.id, title: site.title, currentVersion: site.currentVersion?.versionNumber } : null,
     entryFile: plan.entryFile,
+    entryFileConfirmed: plan.entryFileConfirmed,
     package: { fileCount: plan.precheck.fileCount, totalBytes: plan.precheck.totalBytes },
     accessPolicy: plan.accessPolicy,
     accessPolicyConfirmed: plan.accessPolicyConfirmed,
@@ -472,6 +479,54 @@ export function validateAccessPolicyConfirmation(confirmed) {
       '请让用户明确选择仅协作者、公司内部链接或外部密码链接。'
     );
   }
+}
+
+export function normalizePrecheckResult(data = {}) {
+  const htmlCandidates = Array.isArray(data.htmlCandidates)
+    ? data.htmlCandidates
+    : Array.isArray(data.htmlFiles) ? data.htmlFiles : [];
+  const entryFile = String(data.entryFile || '');
+  const suggestedEntryFile = String(
+    data.suggestedEntryFile ?? data.defaultEntryFile ?? entryFile
+  );
+  return {
+    htmlCandidates,
+    entryFile,
+    suggestedEntryFile,
+    requiresEntrySelection: typeof data.requiresEntrySelection === 'boolean'
+      ? data.requiresEntrySelection
+      : htmlCandidates.length > 1
+  };
+}
+
+export function validateEntryFileConfirmation({
+  htmlCandidates = [],
+  entryFile = '',
+  resolvedEntryFile = '',
+  entryFileConfirmed = false
+}) {
+  const selectedEntryFile = String(entryFile || '').trim();
+  if (htmlCandidates.length > 1) {
+    if (!selectedEntryFile) {
+      throw toolError(
+        'ENTRY_REQUIRED',
+        '作品包含多个 HTML，需要明确入口文件。',
+        `请从以下文件选择：${htmlCandidates.join('、')}`
+      );
+    }
+    if (!htmlCandidates.includes(selectedEntryFile)) {
+      throw toolError('ENTRY_INVALID', '选择的入口文件不在预检候选列表中。', `请从以下文件选择：${htmlCandidates.join('、')}`);
+    }
+    if (entryFileConfirmed !== true) {
+      throw toolError(
+        'ENTRY_CONFIRMATION_REQUIRED',
+        '多页面作品的入口文件尚未经过用户明确确认。',
+        '请展示 HTML 候选和建议入口，让用户确认后再传 entryFileConfirmed=true。'
+      );
+    }
+    return selectedEntryFile;
+  }
+  return selectedEntryFile || String(resolvedEntryFile || '').trim();
 }
 
 function siteSummary(site) {

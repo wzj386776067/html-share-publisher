@@ -15,12 +15,12 @@ import {
 } from './service.js';
 
 const server = new McpServer(
-  { name: 'html-share-workbench', version: '0.4.2' },
+  { name: 'html-share-workbench', version: '0.4.3' },
   {
     instructions: [
       '发布或更新本地 HTML 必须走同一个安全流程：',
       '1. 先调用 auth_status；需要钉钉授权时再调用 start_login。',
-      '2. 调用 precheck_package 预检文件；存在多个 HTML 时不能猜入口文件。',
+      '2. 调用 precheck_package 预检文件；存在多个 HTML 时必须展示全部候选并让用户确认，即使建议入口是 index.html 也不能自行决定。',
       '3. 如果用户未提供作品名称，必须询问用户使用建议名称还是自定义名称；更新时也可以明确选择保留线上名称。',
       '4. 精确判断新建还是更新；需要更新时用 find_sites 或本地 manifest 定位，不能按相似标题猜测。',
       '5. 如果用户未说明分享范围，必须让用户明确选择仅协作者、公司内部链接或外部密码链接，绝不能自行选择。仅协作者可见时，用 resolve_contacts 解析人员或部门。',
@@ -92,6 +92,8 @@ register('prepare_publish', {
     title: z.string().optional().describe('仅在 titleDecision=custom 时提供用户输入的作品名称'),
     siteId: z.string().optional().describe('更新时的 siteId 或稳定分享链接；目录 manifest 可唯一定位时可省略'),
     entryFile: z.string().optional(),
+    entryFileConfirmed: z.literal(true).optional()
+      .describe('存在多个 HTML 时，只有用户明确确认 entryFile 后才能传 true'),
     description: z.string().optional(),
     versionNote: z.string().optional(),
     accessPolicy: z.enum(['collaborators', 'company_link', 'external_link']),

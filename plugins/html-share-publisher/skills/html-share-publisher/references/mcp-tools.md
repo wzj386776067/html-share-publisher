@@ -25,7 +25,9 @@
 
 三种分享策略分别是 `collaborators`、`company_link` 和 `external_link`。`accessPolicy` 只能来自用户在当前发布对话中的明确选择，并同时传入 `accessPolicyConfirmed: true`。外部访问必须包含密码和未来的失效时间。密码必须恰好为 4 位 ASCII 字母或数字；省略时由服务端生成合规密码和 90 天有效期。
 
-`precheck_package` 会根据所选 HTML 文件、ZIP 包或目录名称返回 `suggestedTitle`。`prepare_publish.titleDecision` 必须是以下一种：
+`precheck_package` 会返回完整 `htmlCandidates`、`suggestedEntryFile` 和 `requiresEntrySelection`。候选超过一个时，即使建议入口是 `index.html`，也必须让用户明确确认，并在 `prepare_publish` 中同时传 `entryFile` 和 `entryFileConfirmed: true`。
+
+`precheck_package` 还会根据所选 HTML 文件、ZIP 包或目录名称返回 `suggestedTitle`。`prepare_publish.titleDecision` 必须是以下一种：
 
 - `custom`：用户输入自定义名称，同时必须传 `title`。
 - `use_suggested`：用户明确同意使用预检返回的建议名称。

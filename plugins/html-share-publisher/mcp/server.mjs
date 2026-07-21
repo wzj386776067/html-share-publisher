@@ -21469,6 +21469,7 @@ async function precheckPackage({ sourcePath, entryFile = "" }) {
     const { data } = await uploadZip("/api/uploads/precheck", packaged.zipPath, {
       ...entryFile ? { "x-entry-file": encodeURIComponent(entryFile) } : {}
     });
+    const normalized = normalizePrecheckResult(data);
     const localManifest = readLocalManifest(source);
     return {
       status: "ready",
@@ -21476,9 +21477,10 @@ async function precheckPackage({ sourcePath, entryFile = "" }) {
       sourceKind: source.kind,
       suggestedTitle: source.defaultTitle,
       fingerprint: source.fingerprint,
-      htmlCandidates: data.htmlCandidates,
-      entryFile: data.entryFile,
-      requiresEntrySelection: data.requiresEntrySelection,
+      htmlCandidates: normalized.htmlCandidates,
+      entryFile: normalized.entryFile,
+      suggestedEntryFile: normalized.suggestedEntryFile,
+      requiresEntrySelection: normalized.requiresEntrySelection,
       fileCount: data.fileCount,
       totalBytes: data.totalBytes,
       warnings: source.warnings,
@@ -21540,9 +21542,12 @@ async function preparePublish(input) {
   const authorization = await requireAuthorization();
   const source = inspectSource(input.sourcePath);
   const precheck = await precheckPackage({ sourcePath: input.sourcePath, entryFile: input.entryFile || "" });
-  if (precheck.requiresEntrySelection && !input.entryFile) {
-    throw toolError("ENTRY_REQUIRED", "\u4F5C\u54C1\u5305\u542B\u591A\u4E2A HTML\uFF0C\u9700\u8981\u660E\u786E\u5165\u53E3\u6587\u4EF6\u3002", `\u8BF7\u4ECE\u4EE5\u4E0B\u6587\u4EF6\u9009\u62E9\uFF1A${precheck.htmlCandidates.join("\u3001")}`);
-  }
+  const entryFile = validateEntryFileConfirmation({
+    htmlCandidates: precheck.htmlCandidates,
+    entryFile: input.entryFile,
+    resolvedEntryFile: precheck.entryFile,
+    entryFileConfirmed: input.entryFileConfirmed
+  });
   const operation = input.operation;
   let site = null;
   if (operation === "update") {
@@ -21579,7 +21584,8 @@ async function preparePublish(input) {
     title,
     titleDecision: input.titleDecision,
     description: String(input.description ?? site?.description ?? "").trim(),
-    entryFile: precheck.entryFile,
+    entryFile,
+    entryFileConfirmed: precheck.htmlCandidates.length > 1,
     versionNote: String(input.versionNote || "").trim(),
     accessPolicy,
     accessPolicyDecision: accessPolicy,
@@ -21754,6 +21760,7 @@ function confirmationSummary(plan, site) {
     operation: plan.operation === "new" ? "\u65B0\u5EFA\u4F5C\u54C1" : "\u66F4\u65B0\u5DF2\u6709\u4F5C\u54C1",
     updateTarget: site ? { siteId: site.id, title: site.title, currentVersion: site.currentVersion?.versionNumber } : null,
     entryFile: plan.entryFile,
+    entryFileConfirmed: plan.entryFileConfirmed,
     package: { fileCount: plan.precheck.fileCount, totalBytes: plan.precheck.totalBytes },
     accessPolicy: plan.accessPolicy,
     accessPolicyConfirmed: plan.accessPolicyConfirmed,
@@ -21799,6 +21806,48 @@ function validateAccessPolicyConfirmation(confirmed) {
       "\u8BF7\u8BA9\u7528\u6237\u660E\u786E\u9009\u62E9\u4EC5\u534F\u4F5C\u8005\u3001\u516C\u53F8\u5185\u90E8\u94FE\u63A5\u6216\u5916\u90E8\u5BC6\u7801\u94FE\u63A5\u3002"
     );
   }
+}
+function normalizePrecheckResult(data = {}) {
+  const htmlCandidates = Array.isArray(data.htmlCandidates) ? data.htmlCandidates : Array.isArray(data.htmlFiles) ? data.htmlFiles : [];
+  const entryFile = String(data.entryFile || "");
+  const suggestedEntryFile = String(
+    data.suggestedEntryFile ?? data.defaultEntryFile ?? entryFile
+  );
+  return {
+    htmlCandidates,
+    entryFile,
+    suggestedEntryFile,
+    requiresEntrySelection: typeof data.requiresEntrySelection === "boolean" ? data.requiresEntrySelection : htmlCandidates.length > 1
+  };
+}
+function validateEntryFileConfirmation({
+  htmlCandidates = [],
+  entryFile = "",
+  resolvedEntryFile = "",
+  entryFileConfirmed = false
+}) {
+  const selectedEntryFile = String(entryFile || "").trim();
+  if (htmlCandidates.length > 1) {
+    if (!selectedEntryFile) {
+      throw toolError(
+        "ENTRY_REQUIRED",
+        "\u4F5C\u54C1\u5305\u542B\u591A\u4E2A HTML\uFF0C\u9700\u8981\u660E\u786E\u5165\u53E3\u6587\u4EF6\u3002",
+        `\u8BF7\u4ECE\u4EE5\u4E0B\u6587\u4EF6\u9009\u62E9\uFF1A${htmlCandidates.join("\u3001")}`
+      );
+    }
+    if (!htmlCandidates.includes(selectedEntryFile)) {
+      throw toolError("ENTRY_INVALID", "\u9009\u62E9\u7684\u5165\u53E3\u6587\u4EF6\u4E0D\u5728\u9884\u68C0\u5019\u9009\u5217\u8868\u4E2D\u3002", `\u8BF7\u4ECE\u4EE5\u4E0B\u6587\u4EF6\u9009\u62E9\uFF1A${htmlCandidates.join("\u3001")}`);
+    }
+    if (entryFileConfirmed !== true) {
+      throw toolError(
+        "ENTRY_CONFIRMATION_REQUIRED",
+        "\u591A\u9875\u9762\u4F5C\u54C1\u7684\u5165\u53E3\u6587\u4EF6\u5C1A\u672A\u7ECF\u8FC7\u7528\u6237\u660E\u786E\u786E\u8BA4\u3002",
+        "\u8BF7\u5C55\u793A HTML \u5019\u9009\u548C\u5EFA\u8BAE\u5165\u53E3\uFF0C\u8BA9\u7528\u6237\u786E\u8BA4\u540E\u518D\u4F20 entryFileConfirmed=true\u3002"
+      );
+    }
+    return selectedEntryFile;
+  }
+  return selectedEntryFile || String(resolvedEntryFile || "").trim();
 }
 function siteSummary(site) {
   return {
@@ -21871,12 +21920,12 @@ function toolError(code, message, recovery = "") {
 
 // src/server.js
 var server = new McpServer(
-  { name: "html-share-workbench", version: "0.4.2" },
+  { name: "html-share-workbench", version: "0.4.3" },
   {
     instructions: [
       "\u53D1\u5E03\u6216\u66F4\u65B0\u672C\u5730 HTML \u5FC5\u987B\u8D70\u540C\u4E00\u4E2A\u5B89\u5168\u6D41\u7A0B\uFF1A",
       "1. \u5148\u8C03\u7528 auth_status\uFF1B\u9700\u8981\u9489\u9489\u6388\u6743\u65F6\u518D\u8C03\u7528 start_login\u3002",
-      "2. \u8C03\u7528 precheck_package \u9884\u68C0\u6587\u4EF6\uFF1B\u5B58\u5728\u591A\u4E2A HTML \u65F6\u4E0D\u80FD\u731C\u5165\u53E3\u6587\u4EF6\u3002",
+      "2. \u8C03\u7528 precheck_package \u9884\u68C0\u6587\u4EF6\uFF1B\u5B58\u5728\u591A\u4E2A HTML \u65F6\u5FC5\u987B\u5C55\u793A\u5168\u90E8\u5019\u9009\u5E76\u8BA9\u7528\u6237\u786E\u8BA4\uFF0C\u5373\u4F7F\u5EFA\u8BAE\u5165\u53E3\u662F index.html \u4E5F\u4E0D\u80FD\u81EA\u884C\u51B3\u5B9A\u3002",
       "3. \u5982\u679C\u7528\u6237\u672A\u63D0\u4F9B\u4F5C\u54C1\u540D\u79F0\uFF0C\u5FC5\u987B\u8BE2\u95EE\u7528\u6237\u4F7F\u7528\u5EFA\u8BAE\u540D\u79F0\u8FD8\u662F\u81EA\u5B9A\u4E49\u540D\u79F0\uFF1B\u66F4\u65B0\u65F6\u4E5F\u53EF\u4EE5\u660E\u786E\u9009\u62E9\u4FDD\u7559\u7EBF\u4E0A\u540D\u79F0\u3002",
       "4. \u7CBE\u786E\u5224\u65AD\u65B0\u5EFA\u8FD8\u662F\u66F4\u65B0\uFF1B\u9700\u8981\u66F4\u65B0\u65F6\u7528 find_sites \u6216\u672C\u5730 manifest \u5B9A\u4F4D\uFF0C\u4E0D\u80FD\u6309\u76F8\u4F3C\u6807\u9898\u731C\u6D4B\u3002",
       "5. \u5982\u679C\u7528\u6237\u672A\u8BF4\u660E\u5206\u4EAB\u8303\u56F4\uFF0C\u5FC5\u987B\u8BA9\u7528\u6237\u660E\u786E\u9009\u62E9\u4EC5\u534F\u4F5C\u8005\u3001\u516C\u53F8\u5185\u90E8\u94FE\u63A5\u6216\u5916\u90E8\u5BC6\u7801\u94FE\u63A5\uFF0C\u7EDD\u4E0D\u80FD\u81EA\u884C\u9009\u62E9\u3002\u4EC5\u534F\u4F5C\u8005\u53EF\u89C1\u65F6\uFF0C\u7528 resolve_contacts \u89E3\u6790\u4EBA\u5458\u6216\u90E8\u95E8\u3002",
@@ -21940,6 +21989,7 @@ register("prepare_publish", {
     title: external_exports.string().optional().describe("\u4EC5\u5728 titleDecision=custom \u65F6\u63D0\u4F9B\u7528\u6237\u8F93\u5165\u7684\u4F5C\u54C1\u540D\u79F0"),
     siteId: external_exports.string().optional().describe("\u66F4\u65B0\u65F6\u7684 siteId \u6216\u7A33\u5B9A\u5206\u4EAB\u94FE\u63A5\uFF1B\u76EE\u5F55 manifest \u53EF\u552F\u4E00\u5B9A\u4F4D\u65F6\u53EF\u7701\u7565"),
     entryFile: external_exports.string().optional(),
+    entryFileConfirmed: external_exports.literal(true).optional().describe("\u5B58\u5728\u591A\u4E2A HTML \u65F6\uFF0C\u53EA\u6709\u7528\u6237\u660E\u786E\u786E\u8BA4 entryFile \u540E\u624D\u80FD\u4F20 true"),
     description: external_exports.string().optional(),
     versionNote: external_exports.string().optional(),
     accessPolicy: external_exports.enum(["collaborators", "company_link", "external_link"]),
