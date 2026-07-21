@@ -34,12 +34,12 @@ export function writePlan(plan) {
 }
 
 export function readPlan(planId) {
-  if (!/^plan_[A-Za-z0-9-]+$/.test(String(planId))) return null;
+  if (!/^(?:plan|status_plan)_[A-Za-z0-9-]+$/.test(String(planId))) return null;
   return readJson(path.join(plansDir, `${planId}.json`));
 }
 
 export function deletePlan(planId) {
-  if (/^plan_[A-Za-z0-9-]+$/.test(String(planId))) {
+  if (/^(?:plan|status_plan)_[A-Za-z0-9-]+$/.test(String(planId))) {
     fs.rmSync(path.join(plansDir, `${planId}.json`), { force: true });
   }
 }

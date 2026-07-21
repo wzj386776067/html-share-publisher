@@ -1,6 +1,6 @@
 {
   "name": "html-share-publisher",
-  "version": "0.4.5",
+  "version": "0.4.6",
   "description": "通过本地 MCP 安全发布、更新和管理碧橙 HTML 分享作品。",
   "author": {
     "name": "碧橙"

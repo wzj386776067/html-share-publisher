@@ -1,17 +1,21 @@
 # HTML 分享 MCP 工具契约
 
-执行服务提供以下八个工具：
+执行服务提供以下十个工具：
 
 - `auth_status`：读取本地委托授权状态，或完成已经发起的授权交换。
 - `start_login`：创建一次性钉钉授权链接。
 - `revoke_authorization`：撤销当前委托令牌并清除本地凭证。
 - `precheck_package`：在不发布的情况下打包并校验本地源文件。
 - `find_sites`：查找当前用户有权管理的作品。
+- `prepare_site_status_change`：读取准确目标的当前状态，创建 15 分钟有效的下架或恢复确认计划，不执行变更。
+- `execute_site_status_change`：执行用户已经明确确认的下架或恢复计划。
 - `resolve_contacts`：把人员和部门解析为稳定 ID。
 - `prepare_publish`：校验所有选择，创建 15 分钟有效的确认计划，不执行远程写入。
 - `execute_publish`：执行一个已经确认的计划，发布新版本并写入与源文件对应的本地清单。
 
-所有工具都返回结构化 JSON。返回的 `status` 为 `error` 时，使用 `code`、`message` 和 `recovery` 引导下一步交互。不能绕过 `AUTH_REQUIRED`、`ENTRY_REQUIRED`、`TITLE_DECISION_REQUIRED`、`ACCESS_POLICY_CONFIRMATION_REQUIRED`、`UPDATE_TARGET_REQUIRED`、`CONFIRMATION_REQUIRED`、`SOURCE_CHANGED` 或任何权限错误。
+所有工具都返回结构化 JSON。返回的 `status` 为 `error` 时，使用 `code`、`message` 和 `recovery` 引导下一步交互。不能绕过 `AUTH_REQUIRED`、`ENTRY_REQUIRED`、`TITLE_DECISION_REQUIRED`、`ACCESS_POLICY_CONFIRMATION_REQUIRED`、`UPDATE_TARGET_REQUIRED`、`STATUS_TARGET_REQUIRED`、`CONFIRMATION_REQUIRED`、`SITE_STATE_CHANGED`、`SOURCE_CHANGED` 或任何权限错误。
+
+下架与恢复必须使用独立的 `prepare_site_status_change`、`execute_site_status_change` 两阶段流程。准备阶段只接受准确 `siteId`、公开短码或稳定分享链接；标题查询应先通过 `find_sites` 让用户确认唯一目标。AI 只能操作当前用户自己发布的作品，管理员处理他人作品应进入管理后台。下架仅停止接收者访问，不删除文件、版本或稳定链接；恢复保留原权限，但不会自动重开已经过期、撤销或关闭的外部访问。
 
 `execute_publish` 返回的 `recipientUrl` 是唯一可提供给接收者的链接，`recipientAccess` 表示 `dingtalk` 或 `external_password`。外部权限下，`shareUrl` 和 `internalPreviewUrl` 仅供发布者内部预览；如果 `recipientUrl` 为空或存在 `linkWarning`，不得用内部链接兜底。旧版 MCP 没有 `recipientUrl` 时，外部权限只允许使用 `externalUrl`。
 

@@ -11,6 +11,7 @@
 - 新建作品或通过 `siteId`、新短链接、旧链接精准更新已有作品；
 - 设置仅协作者、公司内部链接或 4 位字母数字密码外链；
 - 最终确认后发布，并保留稳定链接和本地更新绑定。
+- 在确认影响后下架或恢复本人发布的作品，不删除文件和历史版本。
 
 ## 对 Codex 说一句话安装
 
@@ -101,7 +102,7 @@ codex plugin add html-share-publisher@bicheng-html-share
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/wzj386776067/html-share-publisher/main/install.sh \
-  | bash -s -- --version v0.4.5
+  | bash -s -- --version v0.4.6
 ```
 
 重复运行安装命令即可升级或修复安装。发布凭证保存在 `~/.config/html-share`，升级不会删除凭证。
@@ -125,6 +126,8 @@ codex plugin marketplace remove bicheng-html-share
 - MCP 初始化说明和工具描述都包含固定安全流程，不依赖某一种客户端的 Skill 实现。
 - `prepare_publish` 必须包含用户明确作出的作品名称决策和分享范围确认，否则不会生成发布计划。
 - 只有 `execute_publish` 会执行远程发布，并且必须等待用户在聊天中确认完整摘要。
+- 下架或恢复使用独立的两阶段状态计划；AI 只能操作当前用户自己发布的作品，管理员治理他人作品仍需进入工作台。
+- 下架不会删除文件、版本或稳定链接；恢复不会自动重开已过期、撤销或关闭的外部访问。
 - `execute_publish.recipientUrl` 是唯一面向接收者的链接；外部权限返回需要密码的外链，内部 `shareUrl` 仅供发布者预览，不能作为外链兜底。
 - 公开仓库不等于开放发布权限；服务端仍按真实钉钉身份、作品所有权和权限规则校验。
 

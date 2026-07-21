@@ -21147,11 +21147,11 @@ function writePlan(plan) {
   return planPath;
 }
 function readPlan(planId) {
-  if (!/^plan_[A-Za-z0-9-]+$/.test(String(planId))) return null;
+  if (!/^(?:plan|status_plan)_[A-Za-z0-9-]+$/.test(String(planId))) return null;
   return readJson(path2.join(plansDir, `${planId}.json`));
 }
 function deletePlan(planId) {
-  if (/^plan_[A-Za-z0-9-]+$/.test(String(planId))) {
+  if (/^(?:plan|status_plan)_[A-Za-z0-9-]+$/.test(String(planId))) {
     fs.rmSync(path2.join(plansDir, `${planId}.json`), { force: true });
   }
 }
@@ -21516,6 +21516,118 @@ async function findSites({ query = "" } = {}) {
   }).slice(0, 10).map(siteSummary);
   return { status: "ok", sites, count: sites.length };
 }
+async function prepareSiteStatusChange({ siteId, action }) {
+  const authorization = await requireAuthorization();
+  const normalizedAction = normalizeStatusAction(action);
+  const input = String(siteId || "").trim();
+  const reference = normalizeSiteReference(input);
+  if (!reference.siteId && !reference.publicCode) {
+    throw toolError(
+      "STATUS_TARGET_REQUIRED",
+      "\u4E0B\u67B6\u6216\u6062\u590D\u524D\u5FC5\u987B\u6307\u5B9A\u552F\u4E00\u4F5C\u54C1\u3002",
+      "\u8BF7\u5148\u8C03\u7528 find_sites\uFF0C\u8BA9\u7528\u6237\u4ECE\u5019\u9009\u9879\u4E2D\u786E\u8BA4\uFF0C\u518D\u4F20\u5165\u51C6\u786E siteId \u6216\u7A33\u5B9A\u5206\u4EAB\u94FE\u63A5\u3002"
+    );
+  }
+  let site;
+  try {
+    site = await resolveSiteReference(reference);
+  } catch (error2) {
+    if (error2.status === 404) {
+      throw toolError("SITE_NOT_FOUND", `\u627E\u4E0D\u5230\u4F5C\u54C1 ${input}\u3002`, "\u68C0\u67E5 siteId \u6216\u5206\u4EAB\u94FE\u63A5\uFF0C\u4E0D\u80FD\u6309\u76F8\u4F3C\u6807\u9898\u731C\u6D4B\u3002");
+    }
+    throw error2;
+  }
+  if (site.ownerId !== authorization.user.id) {
+    throw toolError(
+      "SITE_OWNER_REQUIRED",
+      "AI \u53EA\u80FD\u4E0B\u67B6\u6216\u6062\u590D\u5F53\u524D\u7528\u6237\u81EA\u5DF1\u53D1\u5E03\u7684\u4F5C\u54C1\u3002",
+      "\u8BF7\u8BA9\u4F5C\u54C1\u6240\u6709\u8005\u6267\u884C\uFF0C\u6216\u7531\u7BA1\u7406\u5458\u5728\u7BA1\u7406\u540E\u53F0\u64CD\u4F5C\u3002"
+    );
+  }
+  const expectedStatus = normalizedAction === "unpublish" ? "published" : "unpublished";
+  const targetStatus = normalizedAction === "unpublish" ? "unpublished" : "published";
+  if (site.status === targetStatus) {
+    return {
+      status: "already_in_target_state",
+      action: normalizedAction,
+      site: siteSummary(site),
+      message: normalizedAction === "unpublish" ? "\u4F5C\u54C1\u5DF2\u7ECF\u4E0B\u67B6\uFF0C\u65E0\u9700\u91CD\u590D\u64CD\u4F5C\u3002" : "\u4F5C\u54C1\u5DF2\u7ECF\u5904\u4E8E\u53D1\u5E03\u72B6\u6001\uFF0C\u65E0\u9700\u91CD\u590D\u64CD\u4F5C\u3002"
+    };
+  }
+  if (site.status !== expectedStatus) {
+    throw toolError("UNSUPPORTED_SITE_STATE", `\u5F53\u524D\u4F5C\u54C1\u72B6\u6001 ${site.status} \u4E0D\u652F\u6301\u8BE5\u64CD\u4F5C\u3002`, "\u8BF7\u5237\u65B0\u4F5C\u54C1\u72B6\u6001\u540E\u91CD\u8BD5\u3002");
+  }
+  const plan = {
+    id: `status_plan_${randomUUID()}`,
+    kind: "site_status_change",
+    createdAt: (/* @__PURE__ */ new Date()).toISOString(),
+    expiresAt: new Date(Date.now() + PLAN_MAX_AGE_MS).toISOString(),
+    siteId: site.id,
+    title: site.title,
+    action: normalizedAction,
+    expectedStatus,
+    targetStatus,
+    siteSnapshot: siteSummary(site),
+    externalAccess: externalAccessSummary(site)
+  };
+  writePlan(plan);
+  return {
+    status: "confirmation_required",
+    planId: plan.id,
+    expiresAt: plan.expiresAt,
+    confirmation: siteStatusConfirmation(plan),
+    nextStep: "\u628A confirmation \u5B8C\u6574\u5C55\u793A\u7ED9\u7528\u6237\uFF1B\u53EA\u6709\u7528\u6237\u660E\u786E\u786E\u8BA4\u5F53\u524D\u64CD\u4F5C\u540E\uFF0C\u624D\u8C03\u7528 execute_site_status_change\u3002"
+  };
+}
+async function executeSiteStatusChange({ planId, confirmed }) {
+  if (confirmed !== true) {
+    throw toolError("CONFIRMATION_REQUIRED", "\u72B6\u6001\u53D8\u66F4\u5C1A\u672A\u83B7\u5F97\u7528\u6237\u660E\u786E\u786E\u8BA4\u3002", "\u5C55\u793A\u786E\u8BA4\u6458\u8981\uFF0C\u5E76\u7B49\u5F85\u7528\u6237\u660E\u786E\u540C\u610F\u3002");
+  }
+  const authorization = await requireAuthorization();
+  const plan = readPlan(planId);
+  if (!plan || plan.kind !== "site_status_change") {
+    throw toolError("STATUS_PLAN_NOT_FOUND", "\u4E0B\u67B6\u6216\u6062\u590D\u8BA1\u5212\u4E0D\u5B58\u5728\u6216\u5DF2\u6E05\u7406\u3002", "\u91CD\u65B0\u8C03\u7528 prepare_site_status_change\u3002");
+  }
+  if (new Date(plan.expiresAt).getTime() <= Date.now()) {
+    deletePlan(planId);
+    throw toolError("PLAN_EXPIRED", "\u72B6\u6001\u53D8\u66F4\u8BA1\u5212\u5DF2\u8FC7\u671F\u3002", "\u91CD\u65B0\u8BFB\u53D6\u4F5C\u54C1\u72B6\u6001\u5E76\u8BA9\u7528\u6237\u786E\u8BA4\u3002");
+  }
+  const site = await resolveSiteReference({ siteId: plan.siteId, publicCode: "" });
+  if (site.ownerId !== authorization.user.id) {
+    throw toolError("SITE_OWNER_REQUIRED", "AI \u53EA\u80FD\u4E0B\u67B6\u6216\u6062\u590D\u5F53\u524D\u7528\u6237\u81EA\u5DF1\u53D1\u5E03\u7684\u4F5C\u54C1\u3002", "\u8BF7\u8BA9\u4F5C\u54C1\u6240\u6709\u8005\u6267\u884C\uFF0C\u6216\u7531\u7BA1\u7406\u5458\u5728\u7BA1\u7406\u540E\u53F0\u64CD\u4F5C\u3002");
+  }
+  if (site.status !== plan.expectedStatus) {
+    deletePlan(planId);
+    throw toolError("SITE_STATE_CHANGED", "\u4F5C\u54C1\u72B6\u6001\u5728\u786E\u8BA4\u540E\u53D1\u751F\u53D8\u5316\uFF0C\u5DF2\u505C\u6B62\u64CD\u4F5C\u3002", "\u91CD\u65B0\u8C03\u7528 prepare_site_status_change \u5E76\u8BA9\u7528\u6237\u786E\u8BA4\u3002");
+  }
+  const endpoint = plan.action === "unpublish" ? "unpublish" : "publish";
+  const { data: updated } = await apiRequest(`/api/sites/${encodeURIComponent(plan.siteId)}/${endpoint}`, {
+    method: "POST",
+    body: {
+      statusChangeContext: {
+        planId: plan.id,
+        siteId: plan.siteId,
+        action: plan.action,
+        expectedStatus: plan.expectedStatus,
+        targetStatus: plan.targetStatus,
+        chatConfirmed: true
+      }
+    }
+  });
+  deletePlan(planId);
+  return {
+    status: plan.targetStatus,
+    action: plan.action,
+    siteId: updated.id,
+    title: updated.title,
+    previousStatus: plan.expectedStatus,
+    currentStatus: updated.status,
+    stableLinkRetained: true,
+    versionsRetained: true,
+    externalAccess: externalAccessSummary(updated),
+    message: plan.action === "unpublish" ? "\u4F5C\u54C1\u5DF2\u4E0B\u67B6\uFF0C\u63A5\u6536\u8005\u5DF2\u65E0\u6CD5\u8BBF\u95EE\uFF1B\u6587\u4EF6\u3001\u7248\u672C\u548C\u7A33\u5B9A\u94FE\u63A5\u5747\u5DF2\u4FDD\u7559\u3002" : restoreMessage(updated)
+  };
+}
 async function resolveContacts({ contacts }) {
   await requireAuthorization();
   const resolved = [];
@@ -21576,6 +21688,7 @@ async function preparePublish(input) {
   const externalExpiresAt = accessPolicy === "external_link" ? normalizeFutureDate(externalExpiryInput || new Date(Date.now() + DEFAULT_EXTERNAL_EXPIRY_DAYS * DAY_MS)) : "";
   const plan = {
     id: `plan_${randomUUID()}`,
+    kind: "publish",
     createdAt: (/* @__PURE__ */ new Date()).toISOString(),
     expiresAt: new Date(Date.now() + PLAN_MAX_AGE_MS).toISOString(),
     sourcePath: source.sourcePath,
@@ -21618,7 +21731,9 @@ async function executePublish({ planId, confirmed }) {
   }
   await requireAuthorization();
   const plan = readPlan(planId);
-  if (!plan) throw toolError("PLAN_NOT_FOUND", "\u53D1\u5E03\u8BA1\u5212\u4E0D\u5B58\u5728\u6216\u5DF2\u6E05\u7406\u3002", "\u91CD\u65B0\u8C03\u7528 prepare_publish\u3002");
+  if (!plan || plan.kind && plan.kind !== "publish") {
+    throw toolError("PLAN_NOT_FOUND", "\u53D1\u5E03\u8BA1\u5212\u4E0D\u5B58\u5728\u6216\u5DF2\u6E05\u7406\u3002", "\u91CD\u65B0\u8C03\u7528 prepare_publish\u3002");
+  }
   if (new Date(plan.expiresAt).getTime() <= Date.now()) {
     deletePlan(planId);
     throw toolError("PLAN_EXPIRED", "\u53D1\u5E03\u8BA1\u5212\u5DF2\u8FC7\u671F\u3002", "\u91CD\u65B0\u9884\u68C0\u5E76\u786E\u8BA4\uFF0C\u907F\u514D\u4F7F\u7528\u8FC7\u65F6\u4FE1\u606F\u53D1\u5E03\u3002");
@@ -21781,6 +21896,51 @@ function confirmationSummary(plan, site) {
     } : null,
     stableLinkWillRemain: plan.operation === "update"
   };
+}
+function siteStatusConfirmation(plan) {
+  const isUnpublish = plan.action === "unpublish";
+  const externalWarning = !isUnpublish && plan.siteSnapshot.accessPolicy === "external_link" && !plan.externalAccess.active ? "\u4F5C\u54C1\u6062\u590D\u540E\uFF0C\u5916\u90E8\u8BBF\u95EE\u4ECD\u4E0D\u53EF\u7528\uFF1B\u9700\u8981\u5728\u5DE5\u4F5C\u53F0\u91CD\u65B0\u5F00\u542F\u6216\u66F4\u65B0\u5916\u94FE\u3002" : "";
+  return {
+    action: isUnpublish ? "\u4E0B\u67B6\u4F5C\u54C1" : "\u6062\u590D\u4E0A\u7EBF",
+    site: plan.siteSnapshot,
+    currentStatus: plan.expectedStatus,
+    targetStatus: plan.targetStatus,
+    impact: isUnpublish ? {
+      recipientAccessStopsImmediately: true,
+      filesRetained: true,
+      versionsRetained: true,
+      stableLinkRetained: true,
+      ownerPreviewAvailable: true,
+      reversible: true
+    } : {
+      stableLinkRetained: true,
+      permissionsRetained: true,
+      versionsRetained: true,
+      externalAccessWillResume: plan.siteSnapshot.accessPolicy !== "external_link" || plan.externalAccess.active
+    },
+    externalAccess: plan.externalAccess,
+    warning: externalWarning
+  };
+}
+function normalizeStatusAction(action) {
+  if (action === "unpublish" || action === "republish") return action;
+  throw toolError("INVALID_STATUS_ACTION", "\u4F5C\u54C1\u72B6\u6001\u64CD\u4F5C\u65E0\u6548\u3002", "action \u53EA\u80FD\u662F unpublish \u6216 republish\u3002");
+}
+function externalAccessSummary(site) {
+  if (site.accessPolicy !== "external_link") return null;
+  const expiresAt = site.externalShare?.expiresAt || "";
+  return {
+    enabled: Boolean(site.externalShare),
+    expiresAt,
+    active: Boolean(site.externalShare && (!expiresAt || Date.parse(expiresAt) > Date.now()))
+  };
+}
+function restoreMessage(site) {
+  const external = externalAccessSummary(site);
+  if (site.accessPolicy === "external_link" && !external?.active) {
+    return "\u4F5C\u54C1\u5DF2\u6062\u590D\u4E0A\u7EBF\uFF0C\u7A33\u5B9A\u94FE\u63A5\u548C\u5386\u53F2\u7248\u672C\u5747\u5DF2\u4FDD\u7559\uFF1B\u5916\u90E8\u8BBF\u95EE\u4ECD\u9700\u5728\u5DE5\u4F5C\u53F0\u91CD\u65B0\u5F00\u542F\u6216\u66F4\u65B0\u3002";
+  }
+  return "\u4F5C\u54C1\u5DF2\u6062\u590D\u4E0A\u7EBF\uFF0C\u539F\u7A33\u5B9A\u94FE\u63A5\u3001\u6743\u9650\u548C\u5386\u53F2\u7248\u672C\u5747\u4FDD\u6301\u4E0D\u53D8\u3002";
 }
 function externalExpiryConfirmation(plan) {
   const createdAt = Date.parse(plan.createdAt);
@@ -21965,7 +22125,7 @@ function toolError(code, message, recovery = "") {
 
 // src/server.js
 var server = new McpServer(
-  { name: "html-share-workbench", version: "0.4.5" },
+  { name: "html-share-workbench", version: "0.4.6" },
   {
     instructions: [
       "\u53D1\u5E03\u6216\u66F4\u65B0\u672C\u5730 HTML \u5FC5\u987B\u8D70\u540C\u4E00\u4E2A\u5B89\u5168\u6D41\u7A0B\uFF1A",
@@ -21978,6 +22138,8 @@ var server = new McpServer(
       "7. \u8C03\u7528 prepare_publish \u65F6\u5FC5\u987B\u4F20\u5165\u7528\u6237\u5DF2\u660E\u786E\u4F5C\u51FA\u7684\u540D\u79F0\u51B3\u7B56\u548C\u5206\u4EAB\u8303\u56F4\u786E\u8BA4\uFF0C\u628A\u5B8C\u6574 confirmation \u5C55\u793A\u7ED9\u7528\u6237\uFF1B\u5916\u90E8\u8BBF\u95EE\u5FC5\u987B\u540C\u65F6\u5C55\u793A\u6709\u6548\u5929\u6570\u3001\u51C6\u786E\u5230\u671F\u65F6\u95F4\u548C\u662F\u5426\u4F7F\u7528\u9ED8\u8BA4\u503C\u3002",
       "8. \u5C55\u793A confirmation \u540E\u505C\u6B62\uFF1B\u7528\u6237\u53EF\u4EE5\u76F4\u63A5\u786E\u8BA4\uFF0C\u4E5F\u53EF\u4EE5\u5148\u4FEE\u6539\u5916\u94FE\u6709\u6548\u671F\u3002\u7528\u6237\u8981\u6C42\u4FEE\u6539\u65F6\u5FC5\u987B\u91CD\u65B0\u8C03\u7528 prepare_publish \u5E76\u5C55\u793A\u65B0\u7684 confirmation\uFF0C\u4E0D\u80FD\u6267\u884C\u65E7\u8BA1\u5212\u3002",
       "9. \u53EA\u6709\u7528\u6237\u5BF9\u5F53\u524D\u6700\u65B0 confirmation \u660E\u786E\u786E\u8BA4\u540E\uFF0C\u624D\u80FD\u8C03\u7528 execute_publish\u3002\u53D1\u5E03\u5B8C\u6210\u540E\u53EA\u628A recipientUrl \u4F5C\u4E3A\u7ED9\u63A5\u6536\u8005\u7684\u94FE\u63A5\uFF1Bexternal_link \u65F6\u7EDD\u4E0D\u80FD\u7528\u5185\u90E8 shareUrl \u4EE3\u66FF\u5916\u90E8\u5BC6\u7801\u94FE\u63A5\u3002",
+      "10. \u4E0B\u67B6\u6216\u6062\u590D\u4F5C\u54C1\u4E0D\u8D70\u6587\u4EF6\u53D1\u5E03\u6D41\u7A0B\uFF1A\u5148\u7528 find_sites \u7CBE\u786E\u5B9A\u4F4D\uFF0C\u518D\u8C03\u7528 prepare_site_status_change \u5C55\u793A\u5F71\u54CD\u5E76\u505C\u6B62\uFF1B\u53EA\u6709\u7528\u6237\u660E\u786E\u786E\u8BA4\u540E\u624D\u80FD\u8C03\u7528 execute_site_status_change\u3002",
+      "11. AI \u53EA\u80FD\u4E0B\u67B6\u6216\u6062\u590D\u5F53\u524D\u7528\u6237\u81EA\u5DF1\u53D1\u5E03\u7684\u4F5C\u54C1\u3002\u7BA1\u7406\u5458\u5904\u7406\u4ED6\u4EBA\u4F5C\u54C1\u4ECD\u5E94\u8FDB\u5165\u7BA1\u7406\u540E\u53F0\uFF1B\u4E0B\u67B6\u4E0D\u5220\u9664\u6587\u4EF6\u3001\u7248\u672C\u6216\u7A33\u5B9A\u94FE\u63A5\u3002",
       "\u66F4\u65B0\u4F1A\u521B\u5EFA\u65B0\u7248\u672C\u5E76\u4FDD\u6301\u7A33\u5B9A\u5206\u4EAB\u94FE\u63A5\u3002\u7EDD\u4E0D\u80FD\u6CC4\u9732\u672C\u673A\u59D4\u6258\u4EE4\u724C\u3002"
     ].join("\n")
   }
@@ -22015,6 +22177,24 @@ register("find_sites", {
   inputSchema: { query: external_exports.string().optional() },
   annotations: { readOnlyHint: true }
 }, findSites);
+register("prepare_site_status_change", {
+  title: "\u51C6\u5907\u4E0B\u67B6\u6216\u6062\u590D\u4F5C\u54C1",
+  description: "\u8BFB\u53D6\u76EE\u6807\u4F5C\u54C1\u5F53\u524D\u72B6\u6001\u5E76\u751F\u6210 15 \u5206\u949F\u6709\u6548\u7684\u5F71\u54CD\u786E\u8BA4\u6458\u8981\uFF1B\u4E0D\u4F1A\u6539\u53D8\u7EBF\u4E0A\u72B6\u6001\u3002",
+  inputSchema: {
+    siteId: external_exports.string().min(1).describe("\u7528\u6237\u5DF2\u7ECF\u660E\u786E\u786E\u8BA4\u7684 siteId\u3001\u516C\u5F00\u77ED\u7801\u6216\u7A33\u5B9A\u5206\u4EAB\u94FE\u63A5"),
+    action: external_exports.enum(["unpublish", "republish"]).describe("unpublish \u8868\u793A\u4E0B\u67B6\uFF0Crepublish \u8868\u793A\u6062\u590D\u4E0A\u7EBF")
+  },
+  annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false }
+}, prepareSiteStatusChange);
+register("execute_site_status_change", {
+  title: "\u6267\u884C\u4E0B\u67B6\u6216\u6062\u590D\u4F5C\u54C1",
+  description: "\u4EC5\u5728\u7528\u6237\u660E\u786E\u786E\u8BA4 prepare_site_status_change \u7684\u5B8C\u6574\u5F71\u54CD\u6458\u8981\u540E\u6267\u884C\u72B6\u6001\u53D8\u66F4\u3002",
+  inputSchema: {
+    planId: external_exports.string().min(1),
+    confirmed: external_exports.literal(true).describe("\u53EA\u6709\u7528\u6237\u660E\u786E\u786E\u8BA4\u5F53\u524D\u6700\u65B0\u72B6\u6001\u53D8\u66F4\u6458\u8981\u540E\u624D\u80FD\u4F20 true")
+  },
+  annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false }
+}, executeSiteStatusChange);
 register("resolve_contacts", {
   title: "\u89E3\u6790\u9489\u9489\u534F\u4F5C\u8005",
   description: "\u628A\u7528\u6237\u8BF4\u51FA\u7684\u4EBA\u5458\u6216\u90E8\u95E8\u540D\u79F0\u89E3\u6790\u4E3A\u7A33\u5B9A\u9489\u9489 ID\uFF1B\u4E0D\u652F\u6301\u7FA4\u804A\uFF0C\u4E0D\u4F1A\u731C\u6D4B\u540C\u540D\u7ED3\u679C\u3002",
