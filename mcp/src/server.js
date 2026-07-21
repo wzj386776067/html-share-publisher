@@ -15,7 +15,7 @@ import {
 } from './service.js';
 
 const server = new McpServer(
-  { name: 'html-share-workbench', version: '0.4.3' },
+  { name: 'html-share-workbench', version: '0.4.4' },
   {
     instructions: [
       '发布或更新本地 HTML 必须走同一个安全流程：',
@@ -26,6 +26,7 @@ const server = new McpServer(
       '5. 如果用户未说明分享范围，必须让用户明确选择仅协作者、公司内部链接或外部密码链接，绝不能自行选择。仅协作者可见时，用 resolve_contacts 解析人员或部门。',
       '6. 调用 prepare_publish 时必须传入用户已明确作出的名称决策和分享范围确认，把完整 confirmation 展示给用户。',
       '7. 展示 confirmation 后停止；只有用户在后续明确确认后，才能调用 execute_publish。',
+      '8. 发布完成后只把 recipientUrl 作为给接收者的链接；external_link 时绝不能用内部 shareUrl 代替外部密码链接。',
       '更新会创建新版本并保持稳定分享链接。绝不能泄露本机委托令牌。'
     ].join('\n')
   }

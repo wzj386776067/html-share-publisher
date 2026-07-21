@@ -291,6 +291,11 @@ export async function executePublish({ planId, confirmed }) {
 
     const external = plan.accessPolicy === 'external_link' ? site.externalShare : null;
     const { data: remoteManifest } = await apiRequest(`/api/sites/${encodeURIComponent(site.id)}/manifest`);
+    const publishedLinks = resolvePublishedLinks({
+      accessPolicy: site.accessPolicy,
+      shareUrl: remoteManifest.shareUrl,
+      externalUrl: external?.externalUrl || ''
+    });
     const localManifest = {
       schemaVersion: 1,
       siteId: site.id,
@@ -313,6 +318,7 @@ export async function executePublish({ planId, confirmed }) {
       title: site.title,
       entryFile: site.currentVersion.entryFile,
       accessPolicy: site.accessPolicy,
+      ...publishedLinks,
       shareUrl: remoteManifest.shareUrl,
       externalUrl: external?.externalUrl || '',
       externalPassword: plan.externalPassword,
@@ -527,6 +533,25 @@ export function validateEntryFileConfirmation({
     return selectedEntryFile;
   }
   return selectedEntryFile || String(resolvedEntryFile || '').trim();
+}
+
+export function resolvePublishedLinks({ accessPolicy, shareUrl = '', externalUrl = '' }) {
+  const internalUrl = String(shareUrl || '');
+  if (accessPolicy === 'external_link') {
+    const recipientUrl = String(externalUrl || '');
+    return {
+      recipientUrl,
+      recipientAccess: 'external_password',
+      internalPreviewUrl: internalUrl,
+      linkWarning: recipientUrl ? '' : '外部密码链接尚未生成，不能使用内部预览链接代替。'
+    };
+  }
+  return {
+    recipientUrl: internalUrl,
+    recipientAccess: 'dingtalk',
+    internalPreviewUrl: '',
+    linkWarning: ''
+  };
 }
 
 function siteSummary(site) {

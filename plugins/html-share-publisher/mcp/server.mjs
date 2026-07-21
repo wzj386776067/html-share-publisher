@@ -21630,6 +21630,11 @@ async function executePublish({ planId, confirmed }) {
     else site = await updateSite(plan, packaged.zipPath);
     const external = plan.accessPolicy === "external_link" ? site.externalShare : null;
     const { data: remoteManifest } = await apiRequest(`/api/sites/${encodeURIComponent(site.id)}/manifest`);
+    const publishedLinks = resolvePublishedLinks({
+      accessPolicy: site.accessPolicy,
+      shareUrl: remoteManifest.shareUrl,
+      externalUrl: external?.externalUrl || ""
+    });
     const localManifest = {
       schemaVersion: 1,
       siteId: site.id,
@@ -21652,6 +21657,7 @@ async function executePublish({ planId, confirmed }) {
       title: site.title,
       entryFile: site.currentVersion.entryFile,
       accessPolicy: site.accessPolicy,
+      ...publishedLinks,
       shareUrl: remoteManifest.shareUrl,
       externalUrl: external?.externalUrl || "",
       externalPassword: plan.externalPassword,
@@ -21849,6 +21855,24 @@ function validateEntryFileConfirmation({
   }
   return selectedEntryFile || String(resolvedEntryFile || "").trim();
 }
+function resolvePublishedLinks({ accessPolicy, shareUrl = "", externalUrl = "" }) {
+  const internalUrl = String(shareUrl || "");
+  if (accessPolicy === "external_link") {
+    const recipientUrl = String(externalUrl || "");
+    return {
+      recipientUrl,
+      recipientAccess: "external_password",
+      internalPreviewUrl: internalUrl,
+      linkWarning: recipientUrl ? "" : "\u5916\u90E8\u5BC6\u7801\u94FE\u63A5\u5C1A\u672A\u751F\u6210\uFF0C\u4E0D\u80FD\u4F7F\u7528\u5185\u90E8\u9884\u89C8\u94FE\u63A5\u4EE3\u66FF\u3002"
+    };
+  }
+  return {
+    recipientUrl: internalUrl,
+    recipientAccess: "dingtalk",
+    internalPreviewUrl: "",
+    linkWarning: ""
+  };
+}
 function siteSummary(site) {
   return {
     siteId: site.id,
@@ -21920,7 +21944,7 @@ function toolError(code, message, recovery = "") {
 
 // src/server.js
 var server = new McpServer(
-  { name: "html-share-workbench", version: "0.4.3" },
+  { name: "html-share-workbench", version: "0.4.4" },
   {
     instructions: [
       "\u53D1\u5E03\u6216\u66F4\u65B0\u672C\u5730 HTML \u5FC5\u987B\u8D70\u540C\u4E00\u4E2A\u5B89\u5168\u6D41\u7A0B\uFF1A",
@@ -21931,6 +21955,7 @@ var server = new McpServer(
       "5. \u5982\u679C\u7528\u6237\u672A\u8BF4\u660E\u5206\u4EAB\u8303\u56F4\uFF0C\u5FC5\u987B\u8BA9\u7528\u6237\u660E\u786E\u9009\u62E9\u4EC5\u534F\u4F5C\u8005\u3001\u516C\u53F8\u5185\u90E8\u94FE\u63A5\u6216\u5916\u90E8\u5BC6\u7801\u94FE\u63A5\uFF0C\u7EDD\u4E0D\u80FD\u81EA\u884C\u9009\u62E9\u3002\u4EC5\u534F\u4F5C\u8005\u53EF\u89C1\u65F6\uFF0C\u7528 resolve_contacts \u89E3\u6790\u4EBA\u5458\u6216\u90E8\u95E8\u3002",
       "6. \u8C03\u7528 prepare_publish \u65F6\u5FC5\u987B\u4F20\u5165\u7528\u6237\u5DF2\u660E\u786E\u4F5C\u51FA\u7684\u540D\u79F0\u51B3\u7B56\u548C\u5206\u4EAB\u8303\u56F4\u786E\u8BA4\uFF0C\u628A\u5B8C\u6574 confirmation \u5C55\u793A\u7ED9\u7528\u6237\u3002",
       "7. \u5C55\u793A confirmation \u540E\u505C\u6B62\uFF1B\u53EA\u6709\u7528\u6237\u5728\u540E\u7EED\u660E\u786E\u786E\u8BA4\u540E\uFF0C\u624D\u80FD\u8C03\u7528 execute_publish\u3002",
+      "8. \u53D1\u5E03\u5B8C\u6210\u540E\u53EA\u628A recipientUrl \u4F5C\u4E3A\u7ED9\u63A5\u6536\u8005\u7684\u94FE\u63A5\uFF1Bexternal_link \u65F6\u7EDD\u4E0D\u80FD\u7528\u5185\u90E8 shareUrl \u4EE3\u66FF\u5916\u90E8\u5BC6\u7801\u94FE\u63A5\u3002",
       "\u66F4\u65B0\u4F1A\u521B\u5EFA\u65B0\u7248\u672C\u5E76\u4FDD\u6301\u7A33\u5B9A\u5206\u4EAB\u94FE\u63A5\u3002\u7EDD\u4E0D\u80FD\u6CC4\u9732\u672C\u673A\u59D4\u6258\u4EE4\u724C\u3002"
     ].join("\n")
   }

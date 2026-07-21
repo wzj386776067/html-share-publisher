@@ -13,6 +13,8 @@
 
 所有工具都返回结构化 JSON。返回的 `status` 为 `error` 时，使用 `code`、`message` 和 `recovery` 引导下一步交互。不能绕过 `AUTH_REQUIRED`、`ENTRY_REQUIRED`、`TITLE_DECISION_REQUIRED`、`ACCESS_POLICY_CONFIRMATION_REQUIRED`、`UPDATE_TARGET_REQUIRED`、`CONFIRMATION_REQUIRED`、`SOURCE_CHANGED` 或任何权限错误。
 
+`execute_publish` 返回的 `recipientUrl` 是唯一可提供给接收者的链接，`recipientAccess` 表示 `dingtalk` 或 `external_password`。外部权限下，`shareUrl` 和 `internalPreviewUrl` 仅供发布者内部预览；如果 `recipientUrl` 为空或存在 `linkWarning`，不得用内部链接兜底。旧版 MCP 没有 `recipientUrl` 时，外部权限只允许使用 `externalUrl`。
+
 传给 `prepare_publish` 的 `permissions` 必须使用 `resolve_contacts` 返回的原始对象：
 
 ```json
