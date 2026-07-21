@@ -17,6 +17,7 @@ import {
   normalizeSiteReference,
   resolvePublishedLinks,
   resolvePublishTitle,
+  siteStatusConfirmation,
   validateAccessPolicyConfirmation,
   validateEntryFileConfirmation
 } from '../src/service.js';
@@ -44,6 +45,8 @@ test('exposes the complete safe publish tool set over MCP stdio', async () => {
       'revoke_authorization',
       'precheck_package',
       'find_sites',
+      'prepare_site_status_change',
+      'execute_site_status_change',
       'resolve_contacts',
       'prepare_publish',
       'execute_publish'
@@ -61,9 +64,48 @@ test('exposes the complete safe publish tool set over MCP stdio', async () => {
     assert.equal(prepare.inputSchema.properties.entryFileConfirmed.const, true);
     assert.match(prepare.inputSchema.properties.externalExpiresAt.description, /“30 天”/);
     assert.match(prepare.inputSchema.properties.externalExpiresAt.description, /默认 90 天/);
+    const prepareStatus = result.tools.find((tool) => tool.name === 'prepare_site_status_change');
+    const executeStatus = result.tools.find((tool) => tool.name === 'execute_site_status_change');
+    assert.deepEqual(prepareStatus.inputSchema.properties.action.enum, ['unpublish', 'republish']);
+    assert.equal(executeStatus.inputSchema.properties.confirmed.const, true);
+    assert.match(client.getInstructions(), /AI 只能下架或恢复当前用户自己发布的作品/);
   } finally {
     await client.close();
   }
+});
+
+test('describes reversible unpublish impact and inactive external access after restore', () => {
+  const siteSnapshot = {
+    siteId: 'site_owned',
+    title: '摄影网站',
+    status: 'published',
+    accessPolicy: 'external_link',
+    currentVersion: 3,
+    entryFile: 'index.html'
+  };
+  const unpublish = siteStatusConfirmation({
+    action: 'unpublish',
+    expectedStatus: 'published',
+    targetStatus: 'unpublished',
+    siteSnapshot,
+    externalAccess: { enabled: true, active: true, expiresAt: '2026-10-19T08:00:00.000Z' }
+  });
+  assert.equal(unpublish.action, '下架作品');
+  assert.equal(unpublish.impact.recipientAccessStopsImmediately, true);
+  assert.equal(unpublish.impact.filesRetained, true);
+  assert.equal(unpublish.impact.stableLinkRetained, true);
+  assert.equal(unpublish.impact.reversible, true);
+
+  const restore = siteStatusConfirmation({
+    action: 'republish',
+    expectedStatus: 'unpublished',
+    targetStatus: 'published',
+    siteSnapshot: { ...siteSnapshot, status: 'unpublished' },
+    externalAccess: { enabled: false, active: false, expiresAt: '' }
+  });
+  assert.equal(restore.action, '恢复上线');
+  assert.equal(restore.impact.externalAccessWillResume, false);
+  assert.match(restore.warning, /外部访问仍不可用/);
 });
 
 test('describes default and custom external expiry without adding another blocking decision', () => {

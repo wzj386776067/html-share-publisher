@@ -160,6 +160,127 @@ export async function findSites({ query = '' } = {}) {
   return { status: 'ok', sites, count: sites.length };
 }
 
+export async function prepareSiteStatusChange({ siteId, action }) {
+  const authorization = await requireAuthorization();
+  const normalizedAction = normalizeStatusAction(action);
+  const input = String(siteId || '').trim();
+  const reference = normalizeSiteReference(input);
+  if (!reference.siteId && !reference.publicCode) {
+    throw toolError(
+      'STATUS_TARGET_REQUIRED',
+      '下架或恢复前必须指定唯一作品。',
+      '请先调用 find_sites，让用户从候选项中确认，再传入准确 siteId 或稳定分享链接。'
+    );
+  }
+
+  let site;
+  try {
+    site = await resolveSiteReference(reference);
+  } catch (error) {
+    if (error.status === 404) {
+      throw toolError('SITE_NOT_FOUND', `找不到作品 ${input}。`, '检查 siteId 或分享链接，不能按相似标题猜测。');
+    }
+    throw error;
+  }
+  if (site.ownerId !== authorization.user.id) {
+    throw toolError(
+      'SITE_OWNER_REQUIRED',
+      'AI 只能下架或恢复当前用户自己发布的作品。',
+      '请让作品所有者执行，或由管理员在管理后台操作。'
+    );
+  }
+
+  const expectedStatus = normalizedAction === 'unpublish' ? 'published' : 'unpublished';
+  const targetStatus = normalizedAction === 'unpublish' ? 'unpublished' : 'published';
+  if (site.status === targetStatus) {
+    return {
+      status: 'already_in_target_state',
+      action: normalizedAction,
+      site: siteSummary(site),
+      message: normalizedAction === 'unpublish' ? '作品已经下架，无需重复操作。' : '作品已经处于发布状态，无需重复操作。'
+    };
+  }
+  if (site.status !== expectedStatus) {
+    throw toolError('UNSUPPORTED_SITE_STATE', `当前作品状态 ${site.status} 不支持该操作。`, '请刷新作品状态后重试。');
+  }
+
+  const plan = {
+    id: `status_plan_${randomUUID()}`,
+    kind: 'site_status_change',
+    createdAt: new Date().toISOString(),
+    expiresAt: new Date(Date.now() + PLAN_MAX_AGE_MS).toISOString(),
+    siteId: site.id,
+    title: site.title,
+    action: normalizedAction,
+    expectedStatus,
+    targetStatus,
+    siteSnapshot: siteSummary(site),
+    externalAccess: externalAccessSummary(site)
+  };
+  writePlan(plan);
+  return {
+    status: 'confirmation_required',
+    planId: plan.id,
+    expiresAt: plan.expiresAt,
+    confirmation: siteStatusConfirmation(plan),
+    nextStep: '把 confirmation 完整展示给用户；只有用户明确确认当前操作后，才调用 execute_site_status_change。'
+  };
+}
+
+export async function executeSiteStatusChange({ planId, confirmed }) {
+  if (confirmed !== true) {
+    throw toolError('CONFIRMATION_REQUIRED', '状态变更尚未获得用户明确确认。', '展示确认摘要，并等待用户明确同意。');
+  }
+  const authorization = await requireAuthorization();
+  const plan = readPlan(planId);
+  if (!plan || plan.kind !== 'site_status_change') {
+    throw toolError('STATUS_PLAN_NOT_FOUND', '下架或恢复计划不存在或已清理。', '重新调用 prepare_site_status_change。');
+  }
+  if (new Date(plan.expiresAt).getTime() <= Date.now()) {
+    deletePlan(planId);
+    throw toolError('PLAN_EXPIRED', '状态变更计划已过期。', '重新读取作品状态并让用户确认。');
+  }
+
+  const site = await resolveSiteReference({ siteId: plan.siteId, publicCode: '' });
+  if (site.ownerId !== authorization.user.id) {
+    throw toolError('SITE_OWNER_REQUIRED', 'AI 只能下架或恢复当前用户自己发布的作品。', '请让作品所有者执行，或由管理员在管理后台操作。');
+  }
+  if (site.status !== plan.expectedStatus) {
+    deletePlan(planId);
+    throw toolError('SITE_STATE_CHANGED', '作品状态在确认后发生变化，已停止操作。', '重新调用 prepare_site_status_change 并让用户确认。');
+  }
+
+  const endpoint = plan.action === 'unpublish' ? 'unpublish' : 'publish';
+  const { data: updated } = await apiRequest(`/api/sites/${encodeURIComponent(plan.siteId)}/${endpoint}`, {
+    method: 'POST',
+    body: {
+      statusChangeContext: {
+        planId: plan.id,
+        siteId: plan.siteId,
+        action: plan.action,
+        expectedStatus: plan.expectedStatus,
+        targetStatus: plan.targetStatus,
+        chatConfirmed: true
+      }
+    }
+  });
+  deletePlan(planId);
+  return {
+    status: plan.targetStatus,
+    action: plan.action,
+    siteId: updated.id,
+    title: updated.title,
+    previousStatus: plan.expectedStatus,
+    currentStatus: updated.status,
+    stableLinkRetained: true,
+    versionsRetained: true,
+    externalAccess: externalAccessSummary(updated),
+    message: plan.action === 'unpublish'
+      ? '作品已下架，接收者已无法访问；文件、版本和稳定链接均已保留。'
+      : restoreMessage(updated)
+  };
+}
+
 export async function resolveContacts({ contacts }) {
   await requireAuthorization();
   const resolved = [];
@@ -233,6 +354,7 @@ export async function preparePublish(input) {
     : '';
   const plan = {
     id: `plan_${randomUUID()}`,
+    kind: 'publish',
     createdAt: new Date().toISOString(),
     expiresAt: new Date(Date.now() + PLAN_MAX_AGE_MS).toISOString(),
     sourcePath: source.sourcePath,
@@ -279,7 +401,9 @@ export async function executePublish({ planId, confirmed }) {
   }
   await requireAuthorization();
   const plan = readPlan(planId);
-  if (!plan) throw toolError('PLAN_NOT_FOUND', '发布计划不存在或已清理。', '重新调用 prepare_publish。');
+  if (!plan || (plan.kind && plan.kind !== 'publish')) {
+    throw toolError('PLAN_NOT_FOUND', '发布计划不存在或已清理。', '重新调用 prepare_publish。');
+  }
   if (new Date(plan.expiresAt).getTime() <= Date.now()) {
     deletePlan(planId);
     throw toolError('PLAN_EXPIRED', '发布计划已过期。', '重新预检并确认，避免使用过时信息发布。');
@@ -454,6 +578,59 @@ function confirmationSummary(plan, site) {
       : null,
     stableLinkWillRemain: plan.operation === 'update'
   };
+}
+
+export function siteStatusConfirmation(plan) {
+  const isUnpublish = plan.action === 'unpublish';
+  const externalWarning = !isUnpublish && plan.siteSnapshot.accessPolicy === 'external_link' && !plan.externalAccess.active
+    ? '作品恢复后，外部访问仍不可用；需要在工作台重新开启或更新外链。'
+    : '';
+  return {
+    action: isUnpublish ? '下架作品' : '恢复上线',
+    site: plan.siteSnapshot,
+    currentStatus: plan.expectedStatus,
+    targetStatus: plan.targetStatus,
+    impact: isUnpublish
+      ? {
+          recipientAccessStopsImmediately: true,
+          filesRetained: true,
+          versionsRetained: true,
+          stableLinkRetained: true,
+          ownerPreviewAvailable: true,
+          reversible: true
+        }
+      : {
+          stableLinkRetained: true,
+          permissionsRetained: true,
+          versionsRetained: true,
+          externalAccessWillResume: plan.siteSnapshot.accessPolicy !== 'external_link' || plan.externalAccess.active
+        },
+    externalAccess: plan.externalAccess,
+    warning: externalWarning
+  };
+}
+
+function normalizeStatusAction(action) {
+  if (action === 'unpublish' || action === 'republish') return action;
+  throw toolError('INVALID_STATUS_ACTION', '作品状态操作无效。', 'action 只能是 unpublish 或 republish。');
+}
+
+function externalAccessSummary(site) {
+  if (site.accessPolicy !== 'external_link') return null;
+  const expiresAt = site.externalShare?.expiresAt || '';
+  return {
+    enabled: Boolean(site.externalShare),
+    expiresAt,
+    active: Boolean(site.externalShare && (!expiresAt || Date.parse(expiresAt) > Date.now()))
+  };
+}
+
+function restoreMessage(site) {
+  const external = externalAccessSummary(site);
+  if (site.accessPolicy === 'external_link' && !external?.active) {
+    return '作品已恢复上线，稳定链接和历史版本均已保留；外部访问仍需在工作台重新开启或更新。';
+  }
+  return '作品已恢复上线，原稳定链接、权限和历史版本均保持不变。';
 }
 
 export function externalExpiryConfirmation(plan) {

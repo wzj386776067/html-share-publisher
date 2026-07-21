@@ -10,6 +10,8 @@ const expectedTools = [
   'revoke_authorization',
   'precheck_package',
   'find_sites',
+  'prepare_site_status_change',
+  'execute_site_status_change',
   'resolve_contacts',
   'prepare_publish',
   'execute_publish'

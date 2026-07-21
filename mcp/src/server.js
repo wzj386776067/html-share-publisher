@@ -6,16 +6,18 @@ import { z } from 'zod';
 import {
   authStatus,
   executePublish,
+  executeSiteStatusChange,
   findSites,
   precheckPackage,
   preparePublish,
+  prepareSiteStatusChange,
   revokeAuthorization,
   resolveContacts,
   startLogin
 } from './service.js';
 
 const server = new McpServer(
-  { name: 'html-share-workbench', version: '0.4.5' },
+  { name: 'html-share-workbench', version: '0.4.6' },
   {
     instructions: [
       '发布或更新本地 HTML 必须走同一个安全流程：',
@@ -28,6 +30,8 @@ const server = new McpServer(
       '7. 调用 prepare_publish 时必须传入用户已明确作出的名称决策和分享范围确认，把完整 confirmation 展示给用户；外部访问必须同时展示有效天数、准确到期时间和是否使用默认值。',
       '8. 展示 confirmation 后停止；用户可以直接确认，也可以先修改外链有效期。用户要求修改时必须重新调用 prepare_publish 并展示新的 confirmation，不能执行旧计划。',
       '9. 只有用户对当前最新 confirmation 明确确认后，才能调用 execute_publish。发布完成后只把 recipientUrl 作为给接收者的链接；external_link 时绝不能用内部 shareUrl 代替外部密码链接。',
+      '10. 下架或恢复作品不走文件发布流程：先用 find_sites 精确定位，再调用 prepare_site_status_change 展示影响并停止；只有用户明确确认后才能调用 execute_site_status_change。',
+      '11. AI 只能下架或恢复当前用户自己发布的作品。管理员处理他人作品仍应进入管理后台；下架不删除文件、版本或稳定链接。',
       '更新会创建新版本并保持稳定分享链接。绝不能泄露本机委托令牌。'
     ].join('\n')
   }
@@ -70,6 +74,26 @@ register('find_sites', {
   inputSchema: { query: z.string().optional() },
   annotations: { readOnlyHint: true }
 }, findSites);
+
+register('prepare_site_status_change', {
+  title: '准备下架或恢复作品',
+  description: '读取目标作品当前状态并生成 15 分钟有效的影响确认摘要；不会改变线上状态。',
+  inputSchema: {
+    siteId: z.string().min(1).describe('用户已经明确确认的 siteId、公开短码或稳定分享链接'),
+    action: z.enum(['unpublish', 'republish']).describe('unpublish 表示下架，republish 表示恢复上线')
+  },
+  annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false }
+}, prepareSiteStatusChange);
+
+register('execute_site_status_change', {
+  title: '执行下架或恢复作品',
+  description: '仅在用户明确确认 prepare_site_status_change 的完整影响摘要后执行状态变更。',
+  inputSchema: {
+    planId: z.string().min(1),
+    confirmed: z.literal(true).describe('只有用户明确确认当前最新状态变更摘要后才能传 true')
+  },
+  annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false }
+}, executeSiteStatusChange);
 
 register('resolve_contacts', {
   title: '解析钉钉协作者',

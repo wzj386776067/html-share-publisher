@@ -33,7 +33,7 @@ Success requires all of the following:
 
 - `codex plugin add` reports `html-share-publisher@bicheng-html-share`;
 - the plugin is installed and enabled in `codex plugin list --json`;
-- verification prints `Verified HTML Share MCP: 8 tools available.`
+- verification prints `Verified HTML Share MCP: 10 tools available.`
 
 The plugin contains a dependency-free MCP bundle. Do not run `npm install`, edit `config.toml`, or execute `codex mcp add` after plugin installation.
 
@@ -62,7 +62,7 @@ Supported values are `auto`, `all`, `codex`, `workbuddy`, `trae`, `codebuddy`, a
 irm https://raw.githubusercontent.com/wzj386776067/html-share-publisher/main/install.ps1 | iex
 ```
 
-The universal installer must finish with `Verified HTML Share MCP: 8 tools available.` and an installation success message. Do not claim success when either message is missing.
+The universal installer must finish with `Verified HTML Share MCP: 10 tools available.` and an installation success message. Do not claim success when either message is missing.
 
 ## Recovery from a Skill-only installation
 
@@ -70,7 +70,7 @@ If `~/.codex/skills/html-share-publisher` exists but the current task does not e
 
 ## Compatibility boundary
 
-After restart or in a new local task, verify that the client exposes the eight `html-share` MCP tools. A user can then say:
+After restart or in a new local task, verify that the client exposes the ten `html-share` MCP tools. A user can then say:
 
 ```text
 把这个 HTML 作品发布出去，只允许我自己访问。执行前先给我看最终确认摘要。
