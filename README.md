@@ -37,7 +37,7 @@ WorkBuddy、TRAE、CodeBuddy 和其他客户端继续使用下方通用安装器
 | 客户端 | MCP | Skill/流程增强 | 配置方式 |
 | --- | --- | --- | --- |
 | Codex | 支持 | Plugin 自动安装 | Codex marketplace |
-| WorkBuddy | 支持 | MCP 自带完整流程说明 | `~/.workbuddy/mcp.json` |
+| WorkBuddy | 支持 | 安装 Skill，MCP 同时提供完整流程说明 | `~/.workbuddy/mcp.json` 与 WorkBuddy Skill 目录 |
 | TRAE / TRAE SOLO | 支持 | 安装 Skill | TRAE 全局 MCP 与 Skill 目录 |
 | CodeBuddy | 支持 | 安装 Skill | `~/.codebuddy` |
 | 其他 MCP 客户端 | 支持标准配置 | 依赖 MCP 自描述 | 生成 `mcp-config.json` |
@@ -110,7 +110,7 @@ codex plugin add html-share-publisher@bicheng-html-share
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/wzj386776067/html-share-publisher/main/install.sh \
-  | bash -s -- --version v0.5.0
+  | bash -s -- --version v0.5.1
 ```
 
 重复运行安装命令即可升级或修复安装。发布凭证保存在 `~/.config/html-share`，升级不会删除凭证。

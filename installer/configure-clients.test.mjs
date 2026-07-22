@@ -35,7 +35,7 @@ function options(source, extra = {}) {
   };
 }
 
-test('merges WorkBuddy MCP config without removing existing servers', () => {
+test('merges WorkBuddy MCP config and installs the current Skill without removing existing servers', () => {
   const source = fixture();
   const configPath = path.join(source.home, '.workbuddy', 'mcp.json');
   fs.mkdirSync(path.dirname(configPath), { recursive: true });
@@ -48,6 +48,9 @@ test('merges WorkBuddy MCP config without removing existing servers', () => {
   assert.equal(config.mcpServers['html-share'].env.HTML_SHARE_API_BASE, 'https://share.bi-cheng.cn');
   assert.equal(config.mcpServers['html-share'].env.HTML_SHARE_CLIENT_NAME, 'WorkBuddy');
   assert.deepEqual(result.selectedClients, ['workbuddy']);
+  const skillPath = path.join(source.home, '.workbuddy', 'skills', 'html-share-publisher', 'SKILL.md');
+  assert.ok(fs.existsSync(skillPath));
+  assert.equal(result.skills.find((skill) => skill.client === 'workbuddy')?.path, path.dirname(skillPath));
 });
 
 test('configures TRAE global MCP and Skill locations on macOS', () => {
