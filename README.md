@@ -7,7 +7,7 @@
 安装后可以在支持 MCP 的 AI 客户端中完成：
 
 - 钉钉身份授权；
-- HTML、静态站点目录或 ZIP 的预检与打包；
+- HTML、静态站点目录、ZIP、Markdown、TXT、Word、PowerPoint 和 Excel 的本地预检；
 - 新建作品或通过 `siteId`、新短链接、旧链接精准更新已有作品；
 - 设置仅协作者、公司内部链接或 4 位字母数字密码外链；
 - 最终确认后发布，并保留稳定链接和本地更新绑定。
@@ -84,11 +84,19 @@ codex plugin add html-share-publisher@bicheng-html-share
 
 ## 测试
 
-准备一个包含 HTML 的本地目录，然后对当前 AI 说：
+准备一个静态网站目录或支持的文档，然后对当前 AI 说：
 
 ```text
 把 /绝对路径/到/作品目录 发布出去，只允许我自己访问。执行前先展示最终确认摘要。
 ```
+
+文档可以直接发布，无需手工转成 ZIP：
+
+```text
+把 /绝对路径/季度复盘.pptx 发布给全公司，执行前先展示最终确认摘要。
+```
+
+直接文档支持 `.md`、`.txt`、`.docx`、`.pptx` 和 `.xlsx`。旧版 `.doc`、`.ppt`、`.xls` 请先另存为新版格式。文档在最终确认前只在本机预检，确认后才上传原文件并由平台转换为网页。
 
 首次使用会返回一次性钉钉授权链接。完成授权后，AI 会继续预检、确认新建或更新、设置权限，并在真正上传前再次等待明确确认。
 
@@ -102,7 +110,7 @@ codex plugin add html-share-publisher@bicheng-html-share
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/wzj386776067/html-share-publisher/main/install.sh \
-  | bash -s -- --version v0.4.7
+  | bash -s -- --version v0.5.0
 ```
 
 重复运行安装命令即可升级或修复安装。发布凭证保存在 `~/.config/html-share`，升级不会删除凭证。
@@ -128,7 +136,7 @@ codex plugin marketplace remove bicheng-html-share
 - AI 委托令牌不继承浏览器管理员权限，只能管理当前用户自己发布的作品。
 - MCP 初始化说明和工具描述都包含固定安全流程，不依赖某一种客户端的 Skill 实现。
 - `prepare_publish` 必须包含用户明确作出的作品名称决策和分享范围确认，否则不会生成发布计划。
-- 只有 `execute_publish` 会执行远程发布，并且必须等待用户在聊天中确认完整摘要。
+- `precheck_package` 和 `prepare_publish` 不上传源文件；只有 `execute_publish` 会在用户确认完整摘要后执行远程发布。
 - 下架或恢复使用独立的两阶段状态计划；AI 只能操作当前用户自己发布的作品，管理员治理他人作品仍需进入工作台。
 - 下架不会删除文件、版本或稳定链接；恢复不会自动重开已过期、撤销或关闭的外部访问。
 - `execute_publish.recipientUrl` 是唯一面向接收者的链接；外部权限返回需要密码的外链，内部 `shareUrl` 仅供发布者预览，不能作为外链兜底。

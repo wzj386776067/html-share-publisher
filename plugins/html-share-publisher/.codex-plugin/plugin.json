@@ -1,7 +1,7 @@
 {
   "name": "html-share-publisher",
-  "version": "0.4.7",
-  "description": "通过本地 MCP 安全发布、更新和管理碧橙 HTML 分享作品。",
+  "version": "0.5.0",
+  "description": "通过本地 MCP 安全发布、更新和管理碧橙静态网站与文档。",
   "author": {
     "name": "碧橙"
   },
@@ -15,9 +15,9 @@
   ],
   "skills": "./skills/",
   "interface": {
-    "displayName": "HTML 分享发布",
-    "shortDescription": "安全发布和更新 HTML 作品",
-    "longDescription": "一次安装本地 MCP 与发布 Skill，通过钉钉身份安全发布、更新 HTML 作品并管理分享范围。",
+    "displayName": "碧橙内容发布",
+    "shortDescription": "安全发布和更新网站与文档",
+    "longDescription": "一次安装本地 MCP 与发布 Skill，通过钉钉身份安全发布、更新静态网站和文档并管理分享范围。",
     "developerName": "碧橙",
     "category": "Productivity",
     "capabilities": [
@@ -25,8 +25,8 @@
       "Write"
     ],
     "defaultPrompt": [
-      "把这个 HTML 作品发布出去，执行前先展示最终确认摘要。",
-      "更新已发布的 HTML 作品，保持原权限。"
+      "把这个网站或文档发布出去，执行前先展示最终确认摘要。",
+      "更新已发布的作品，保持原权限。"
     ]
   },
   "mcpServers": "./.mcp.json"

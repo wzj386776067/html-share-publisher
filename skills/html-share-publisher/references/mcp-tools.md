@@ -1,11 +1,11 @@
-# HTML 分享 MCP 工具契约
+# 碧橙内容发布 MCP 工具契约
 
 执行服务提供以下十个工具：
 
 - `auth_status`：读取本地委托授权状态，或完成已经发起的授权交换。
 - `start_login`：创建一次性钉钉授权链接。
 - `revoke_authorization`：撤销当前委托令牌并清除本地凭证。
-- `precheck_package`：在不发布的情况下打包并校验本地源文件。
+- `precheck_package`：在本机校验静态网站或文档，不上传、不发布。
 - `find_sites`：查找当前用户有权管理的作品。
 - `prepare_site_status_change`：读取准确目标的当前状态，创建 15 分钟有效的下架或恢复确认计划，不执行变更。
 - `execute_site_status_change`：执行用户已经明确确认的下架或恢复计划。
@@ -33,7 +33,11 @@
 
 `precheck_package` 会返回完整 `htmlCandidates`、`suggestedEntryFile` 和 `requiresEntrySelection`。候选超过一个时，即使建议入口是 `index.html`，也必须让用户明确确认，并在 `prepare_publish` 中同时传 `entryFile` 和 `entryFileConfirmed: true`。
 
-`precheck_package` 还会根据所选 HTML 文件、ZIP 包或目录名称返回 `suggestedTitle`。`prepare_publish.titleDecision` 必须是以下一种：
+直接文档支持 `.md`、`.txt`、`.docx`、`.pptx` 和 `.xlsx`。文档预检返回 `sourceFormat`、`formatLabel`、`sourceFilename`、`displayMode`、大小、格式摘要和 `warnings`；`htmlCandidates` 为空，入口由平台固定生成为 `index.html`，不得要求用户选择入口。旧版 `.doc`、`.ppt` 和 `.xls` 不支持，应提示另存为新版格式。预检只读取本地文件，只有 `execute_publish` 才上传原文档并由服务器转换。
+
+`prepare_publish.confirmation.source` 描述本次来源。文档必须向用户展示 `filename`、`formatLabel`、`size`、`details` 和全部 `conversionWarnings`；静态网站仍展示 `entryFile` 和 `package`。Word/PowerPoint 转换为网页预览时不保留宏、动态控件、动画、切换、音视频和外部数据；Excel 的隐藏工作表和高级对象按预检警告处理。
+
+`precheck_package` 还会根据所选 HTML、ZIP、目录或文档名称返回 `suggestedTitle`。`prepare_publish.titleDecision` 必须是以下一种：
 
 - `custom`：用户输入自定义名称，同时必须传 `title`。
 - `use_suggested`：用户明确同意使用预检返回的建议名称。

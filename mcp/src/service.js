@@ -1,7 +1,8 @@
 import { randomInt, randomUUID } from 'node:crypto';
+import path from 'node:path';
 import { apiBaseUrl, clientName } from './config.js';
-import { apiRequest, uploadZip } from './api.js';
-import { inspectSource, packageSource, precheckSourcePackage, readLocalManifest } from './package-source.js';
+import { apiRequest, uploadFile } from './api.js';
+import { inspectSource, precheckSourcePackage, prepareSourceUpload, readLocalManifest } from './package-source.js';
 import {
   clearCredentials,
   clearPendingAuth,
@@ -109,7 +110,7 @@ export async function precheckPackage({ sourcePath, entryFile = '' }) {
     suggestedTitle: source.defaultTitle,
     fingerprint: source.fingerprint,
     ...precheck,
-    warnings: source.warnings,
+    warnings: [...(source.warnings || []), ...(precheck.warnings || [])],
     localBinding: localManifest,
     suggestedOperation: localManifest?.siteId ? 'update' : 'new'
   };
@@ -356,6 +357,13 @@ export async function preparePublish(input) {
     sourceRoot: source.sourceRoot,
     manifestPath: source.manifestPath,
     fingerprint: source.fingerprint,
+    sourceKind: source.kind,
+    sourceFormat: source.sourceFormat || 'html_zip',
+    sourceFilename: path.basename(source.sourcePath),
+    formatLabel: precheck.formatLabel || 'HTML 网站',
+    displayMode: precheck.displayMode || 'website',
+    conversionWarnings: precheck.warnings || [],
+    documentDetails: source.kind === 'document' ? documentDetailsForPrecheck(precheck) : {},
     operation,
     siteId: site?.id || '',
     title,
@@ -420,11 +428,11 @@ export async function executePublish({ planId, confirmed }) {
     throw toolError('SOURCE_CHANGED', '确认后本地文件发生了变化，已停止发布。', '重新调用 prepare_publish，让用户确认最新内容。');
   }
 
-  const packaged = packageSource(source);
+  const upload = prepareSourceUpload(source);
   try {
     let site;
-    if (plan.operation === 'new') site = await createSite(plan, packaged.zipPath);
-    else site = await updateSite(plan, packaged.zipPath);
+    if (plan.operation === 'new') site = await createSite(plan, upload);
+    else site = await updateSite(plan, upload);
 
     const external = plan.accessPolicy === 'external_link' ? site.externalShare : null;
     const { data: remoteManifest } = await apiRequest(`/api/sites/${encodeURIComponent(site.id)}/manifest`);
@@ -440,6 +448,8 @@ export async function executePublish({ planId, confirmed }) {
       shareUrl: remoteManifest.shareUrl,
       sourceRoot: '.',
       entryFile: site.currentVersion.entryFile,
+      sourceFormat: site.currentVersion.sourceFormat || plan.sourceFormat,
+      sourceFilename: site.currentVersion.sourceFilename || plan.sourceFilename,
       lastVersionId: site.currentVersion.id,
       lastPublishedAt: new Date().toISOString(),
       lastContentHash: site.currentVersion.contentHash
@@ -454,6 +464,8 @@ export async function executePublish({ planId, confirmed }) {
       versionNumber: site.currentVersion.versionNumber,
       title: site.title,
       entryFile: site.currentVersion.entryFile,
+      sourceFormat: site.currentVersion.sourceFormat || plan.sourceFormat,
+      sourceFilename: site.currentVersion.sourceFilename || plan.sourceFilename,
       accessPolicy: site.accessPolicy,
       ...publishedLinks,
       shareUrl: remoteManifest.shareUrl,
@@ -463,30 +475,38 @@ export async function executePublish({ planId, confirmed }) {
       manifestPath: plan.manifestPath
     };
   } finally {
-    packaged.cleanup();
+    upload.cleanup();
   }
 }
 
-async function createSite(plan, zipPath) {
+async function createSite(plan, upload) {
   const publishContext = publishContextForPlan(plan);
   const metadata = publishMetadataForPlan(plan, '');
-  return (await uploadZip('/api/sites', zipPath, {
-    'x-site-metadata': encodeURIComponent(JSON.stringify(metadata)),
-    'x-publish-context': encodeURIComponent(JSON.stringify(publishContext)),
-    'x-idempotency-key': plan.serverPlanId,
-    'x-server-publish-plan': plan.serverPlanToken
+  return (await uploadFile('/api/sites', upload.filePath, {
+    filename: upload.filename,
+    contentType: upload.contentType,
+    headers: {
+      'x-site-metadata': encodeURIComponent(JSON.stringify(metadata)),
+      'x-publish-context': encodeURIComponent(JSON.stringify(publishContext)),
+      'x-idempotency-key': plan.serverPlanId,
+      'x-server-publish-plan': plan.serverPlanToken
+    }
   })).data;
 }
 
-async function updateSite(plan, zipPath) {
+async function updateSite(plan, upload) {
   const publishContext = publishContextForPlan(plan);
   const current = (await apiRequest(`/api/sites/${encodeURIComponent(plan.siteId)}`)).data;
   const metadata = publishMetadataForPlan(plan, current.alias || '');
-  return (await uploadZip(`/api/sites/${encodeURIComponent(plan.siteId)}/publish-version`, zipPath, {
-    'x-site-metadata': encodeURIComponent(JSON.stringify(metadata)),
-    'x-publish-context': encodeURIComponent(JSON.stringify(publishContext)),
-    'x-idempotency-key': plan.serverPlanId,
-    'x-server-publish-plan': plan.serverPlanToken
+  return (await uploadFile(`/api/sites/${encodeURIComponent(plan.siteId)}/publish-version`, upload.filePath, {
+    filename: upload.filename,
+    contentType: upload.contentType,
+    headers: {
+      'x-site-metadata': encodeURIComponent(JSON.stringify(metadata)),
+      'x-publish-context': encodeURIComponent(JSON.stringify(publishContext)),
+      'x-idempotency-key': plan.serverPlanId,
+      'x-server-publish-plan': plan.serverPlanToken
+    }
   })).data;
 }
 
@@ -560,14 +580,24 @@ async function checkStoredAuthorization() {
   }
 }
 
-function confirmationSummary(plan, site) {
+export function confirmationSummary(plan, site) {
   return {
     title: plan.title,
     titleDecision: plan.titleDecision,
     operation: plan.operation === 'new' ? '新建作品' : '更新已有作品',
     updateTarget: site ? { siteId: site.id, title: site.title, currentVersion: site.currentVersion?.versionNumber } : null,
-    entryFile: plan.entryFile,
-    entryFileConfirmed: plan.entryFileConfirmed,
+    entryFile: plan.sourceKind === 'document' ? null : plan.entryFile,
+    entryFileConfirmed: plan.sourceKind === 'document' ? false : plan.entryFileConfirmed,
+    source: {
+      kind: plan.sourceKind,
+      filename: plan.sourceFilename,
+      format: plan.sourceFormat,
+      formatLabel: plan.formatLabel,
+      displayMode: plan.displayMode,
+      size: plan.precheck.totalBytes,
+      details: plan.documentDetails,
+      conversionWarnings: plan.conversionWarnings
+    },
     package: { fileCount: plan.precheck.fileCount, totalBytes: plan.precheck.totalBytes },
     accessPolicy: plan.accessPolicy,
     accessPolicyConfirmed: plan.accessPolicyConfirmed,
@@ -580,6 +610,16 @@ function confirmationSummary(plan, site) {
       : null,
     stableLinkWillRemain: plan.operation === 'update'
   };
+}
+
+function documentDetailsForPrecheck(precheck) {
+  return Object.fromEntries([
+    ['encoding', precheck.encoding],
+    ['characterCount', precheck.characterCount],
+    ['slideCount', precheck.slideCount],
+    ['visibleSheetCount', precheck.visibleSheetCount],
+    ['hiddenSheetCount', precheck.hiddenSheetCount]
+  ].filter(([, value]) => value !== undefined));
 }
 
 export function siteStatusConfirmation(plan) {

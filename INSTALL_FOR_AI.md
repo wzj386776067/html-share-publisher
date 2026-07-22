@@ -2,7 +2,7 @@
 
 > **Critical:** this repository is a combined **Codex Plugin + local MCP + Skill**, not a standalone Skill repository. Any request that includes this repository URL and asks to install the tool, Skill, plugin, or MCP means: install the complete product. Copying only `skills/html-share-publisher` is an incomplete installation and must never be reported as success.
 
-Use this file when a user asks an AI agent to install HTML Share Publisher from this repository.
+Use this file when a user asks an AI agent to install the Bicheng Content Publisher from this repository.
 
 ## Required behavior
 
@@ -75,5 +75,7 @@ After restart or in a new local task, verify that the client exposes the ten `ht
 ```text
 把这个 HTML 作品发布出去，只允许我自己访问。执行前先给我看最终确认摘要。
 ```
+
+The same workflow supports local static websites and `.md`, `.txt`, `.docx`, `.pptx`, or `.xlsx` documents. Legacy `.doc`, `.ppt`, and `.xls` files must be saved in their modern formats first. Precheck and preparation stay local; the source file is uploaded only after the user confirms the latest summary.
 
 Clients without a dedicated adapter can import the generated `~/.local/share/html-share-publisher/mcp-config.json`. A cloud-only client that cannot run local MCP servers is not compatible; state that boundary instead of pretending installation succeeded.
