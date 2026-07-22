@@ -1,7 +1,7 @@
 {
   "name": "bicheng-html-share",
   "interface": {
-    "displayName": "碧橙 HTML 分享"
+    "displayName": "碧橙内容发布"
   },
   "plugins": [
     {

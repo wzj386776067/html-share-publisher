@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { unzipSync, zipSync } from 'fflate';
+import { XMLParser } from 'fast-xml-parser';
 
 const EXCLUDED_NAMES = new Set(['.git', 'node_modules', '.DS_Store']);
 const SENSITIVE_DIRECTORIES = new Set(['.ssh', '.aws', '.azure', '.gcloud']);
@@ -32,6 +33,24 @@ const SENSITIVE_NAME_PATTERNS = [
 const MAX_FILES = 500;
 const MAX_FILE_BYTES = 20 * 1024 * 1024;
 const MAX_TOTAL_BYTES = 150 * 1024 * 1024;
+const MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
+const MAX_TEXT_BYTES = 10 * 1024 * 1024;
+const MAX_OFFICE_ENTRIES = 10_000;
+const MAX_OFFICE_UNCOMPRESSED_BYTES = 500 * 1024 * 1024;
+const MAX_OFFICE_XML_BYTES = 20 * 1024 * 1024;
+const DOCUMENT_FORMATS = new Map([
+  ['.md', { format: 'md', label: 'Markdown', displayMode: 'article' }],
+  ['.txt', { format: 'txt', label: '纯文本', displayMode: 'article' }],
+  ['.docx', { format: 'docx', label: 'Word', displayMode: 'document' }],
+  ['.pptx', { format: 'pptx', label: 'PowerPoint', displayMode: 'slides' }],
+  ['.xlsx', { format: 'xlsx', label: 'Excel', displayMode: 'workbook' }]
+]);
+const LEGACY_OFFICE_FORMATS = new Map([
+  ['.doc', '.docx'],
+  ['.ppt', '.pptx'],
+  ['.xls', '.xlsx']
+]);
+const XML_PARSER = new XMLParser({ ignoreAttributes: false, processEntities: false });
 const BLOCKED_EXTENSIONS = new Set([
   '.php', '.jsp', '.asp', '.aspx', '.exe', '.sh', '.bat', '.cmd', '.com',
   '.mp4', '.mov', '.avi', '.mkv', '.webm'
@@ -41,8 +60,31 @@ export function inspectSource(sourcePath) {
   const absolutePath = path.resolve(sourcePath);
   const stat = fs.lstatSync(absolutePath);
   if (stat.isSymbolicLink()) throw inputError('不支持把符号链接作为发布源。');
+  const extension = path.extname(absolutePath).toLowerCase();
 
-  if (stat.isFile() && path.extname(absolutePath).toLowerCase() === '.zip') {
+  if (stat.isFile() && LEGACY_OFFICE_FORMATS.has(extension)) {
+    throw inputError(`暂不支持旧版 ${extension} 文件，请另存为 ${LEGACY_OFFICE_FORMATS.get(extension)} 后重试。`);
+  }
+
+  if (stat.isFile() && DOCUMENT_FORMATS.has(extension)) {
+    if (stat.size > MAX_UPLOAD_BYTES) throw inputError('文档文件不能超过 100MB。');
+    const documentFormat = DOCUMENT_FORMATS.get(extension);
+    return {
+      sourcePath: absolutePath,
+      sourceRoot: path.dirname(absolutePath),
+      defaultTitle: path.basename(absolutePath, extension),
+      manifestPath: sidecarManifestPath(absolutePath),
+      kind: 'document',
+      sourceFormat: documentFormat.format,
+      formatLabel: documentFormat.label,
+      displayMode: documentFormat.displayMode,
+      files: [absolutePath],
+      fingerprint: hashFiles([absolutePath], path.dirname(absolutePath)),
+      warnings: []
+    };
+  }
+
+  if (stat.isFile() && extension === '.zip') {
     return {
       sourcePath: absolutePath,
       sourceRoot: path.dirname(absolutePath),
@@ -55,7 +97,7 @@ export function inspectSource(sourcePath) {
     };
   }
 
-  if (stat.isFile() && ['.html', '.htm'].includes(path.extname(absolutePath).toLowerCase())) {
+  if (stat.isFile() && ['.html', '.htm'].includes(extension)) {
     return {
       sourcePath: absolutePath,
       sourceRoot: path.dirname(absolutePath),
@@ -68,7 +110,9 @@ export function inspectSource(sourcePath) {
     };
   }
 
-  if (!stat.isDirectory()) throw inputError('发布源必须是目录、HTML 文件或 ZIP 文件。');
+  if (!stat.isDirectory()) {
+    throw inputError('发布源必须是静态网站目录、HTML、ZIP、Markdown、TXT、Word、PowerPoint 或 Excel 文件。');
+  }
   const files = walkFiles(absolutePath);
   if (!files.length) throw inputError('发布目录为空。');
   return {
@@ -84,6 +128,7 @@ export function inspectSource(sourcePath) {
 }
 
 export function packageSource(source) {
+  if (source.kind === 'document') throw inputError('文档应上传原始文件，不能在本地打包为 HTML ZIP。');
   if (source.kind === 'zip') return { zipPath: source.sourcePath, cleanup: () => {} };
   validateSourceFiles(source);
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'html-share-mcp-'));
@@ -99,7 +144,26 @@ export function packageSource(source) {
   };
 }
 
+export function prepareSourceUpload(source) {
+  if (source.kind === 'document') {
+    return {
+      filePath: source.sourcePath,
+      filename: path.basename(source.sourcePath),
+      contentType: 'application/octet-stream',
+      cleanup() {}
+    };
+  }
+  const packaged = packageSource(source);
+  return {
+    filePath: packaged.zipPath,
+    filename: 'upload.zip',
+    contentType: 'application/zip',
+    cleanup: packaged.cleanup
+  };
+}
+
 export function precheckSourcePackage(source, { entryFile = '' } = {}) {
+  if (source.kind === 'document') return precheckDocument(source);
   const packaged = packageSource(source);
   try {
     const entries = inspectZip(packaged.zipPath).filter((entry) => !entry.path.endsWith('/'));
@@ -139,6 +203,140 @@ export function precheckSourcePackage(source, { entryFile = '' } = {}) {
   } finally {
     packaged.cleanup();
   }
+}
+
+function precheckDocument(source) {
+  const stat = fs.statSync(source.sourcePath);
+  const common = {
+    sourceFormat: source.sourceFormat,
+    formatLabel: source.formatLabel,
+    sourceFilename: path.basename(source.sourcePath),
+    displayMode: source.displayMode,
+    entryFile: 'index.html',
+    suggestedEntryFile: 'index.html',
+    htmlCandidates: [],
+    requiresEntrySelection: false,
+    fileCount: 1,
+    totalBytes: stat.size,
+    sourceBytes: stat.size
+  };
+  if (source.sourceFormat === 'md' || source.sourceFormat === 'txt') {
+    return { ...common, ...inspectTextDocument(source) };
+  }
+  return { ...common, ...inspectOfficeDocument(source) };
+}
+
+function inspectTextDocument(source) {
+  const buffer = fs.readFileSync(source.sourcePath);
+  if (buffer.length > MAX_TEXT_BYTES) throw inputError('文本文件不能超过 10MB。');
+  if (buffer.includes(0)) throw inputError('文件包含二进制内容，无法作为文本发布。');
+  const { text, encoding } = decodeText(buffer);
+  if (!text.trim()) throw inputError('文件内容为空。');
+  return {
+    encoding,
+    characterCount: text.length,
+    warnings: source.sourceFormat === 'md' && /<\/?[a-z][\s\S]*?>/i.test(text)
+      ? ['Markdown 中的原始 HTML 将被安全过滤。']
+      : []
+  };
+}
+
+function inspectOfficeDocument(source) {
+  const { entries, files } = readOfficeArchive(source);
+  const requiredEntry = source.sourceFormat === 'docx' ? 'word/document.xml'
+    : source.sourceFormat === 'pptx' ? 'ppt/presentation.xml'
+      : 'xl/workbook.xml';
+  if (!entries.includes('[Content_Types].xml') || !entries.includes(requiredEntry)) {
+    throw inputError(`文件内容不是有效的 ${source.formatLabel} 文档。`);
+  }
+
+  if (source.sourceFormat === 'docx') {
+    const document = parseOfficeXml(files[requiredEntry], source.formatLabel);
+    return {
+      characterCount: countTextCharacters(document),
+      warnings: ['宏、动态控件和外部数据不会执行。']
+    };
+  }
+  if (source.sourceFormat === 'pptx') {
+    const slideCount = entries.filter((entry) => /^ppt\/slides\/slide\d+\.xml$/i.test(entry)).length;
+    if (!slideCount) throw inputError('PowerPoint 中没有可发布的幻灯片。');
+    return {
+      slideCount,
+      warnings: ['动画、切换效果、音频和视频不会保留。']
+    };
+  }
+
+  const workbook = parseOfficeXml(files[requiredEntry], source.formatLabel);
+  const sheetsValue = workbook?.workbook?.sheets?.sheet;
+  const sheets = Array.isArray(sheetsValue) ? sheetsValue : sheetsValue ? [sheetsValue] : [];
+  if (!sheets.length) throw inputError('Excel 中没有可读取的工作表。');
+  const hiddenSheets = sheets.filter((sheet) => String(sheet?.['@_state'] || 'visible') !== 'visible');
+  const visibleSheets = sheets.filter((sheet) => String(sheet?.['@_state'] || 'visible') === 'visible');
+  if (!visibleSheets.length) throw inputError('Excel 中没有可发布的可见工作表。');
+  const warnings = ['图表、图片、批注、数据透视表等高级对象不会发布。'];
+  if (hiddenSheets.length) {
+    const names = hiddenSheets.slice(0, 10).map((sheet) => sheet?.['@_name']).filter(Boolean).join('、');
+    warnings.push(`已排除隐藏工作表${names ? `：${names}` : ''}${hiddenSheets.length > 10 ? `（共 ${hiddenSheets.length} 个）` : ''}`);
+  }
+  return {
+    visibleSheetCount: visibleSheets.length,
+    hiddenSheetCount: hiddenSheets.length,
+    warnings
+  };
+}
+
+function readOfficeArchive(source) {
+  const entries = [];
+  let totalBytes = 0;
+  try {
+    const files = unzipSync(new Uint8Array(fs.readFileSync(source.sourcePath)), {
+      filter(file) {
+        const normalized = file.name.replaceAll('\\', '/');
+        entries.push(normalized);
+        totalBytes += Number(file.originalSize || 0);
+        if (entries.length > MAX_OFFICE_ENTRIES || totalBytes > MAX_OFFICE_UNCOMPRESSED_BYTES) {
+          throw inputError('Office 文件解压后体积或文件数量超过安全限制。');
+        }
+        if (isUnsafeArchivePath(normalized)) throw inputError('Office 文件包含不安全的内部路径。');
+        const selected = normalized === 'word/document.xml' || normalized === 'ppt/presentation.xml'
+          || normalized === 'xl/workbook.xml';
+        if (selected && Number(file.originalSize || 0) > MAX_OFFICE_XML_BYTES) {
+          throw inputError('Office 文件内部结构过大，无法安全预检。');
+        }
+        return selected;
+      }
+    });
+    return { entries, files };
+  } catch (error) {
+    if (error?.code === 'INVALID_SOURCE') throw error;
+    throw inputError(`文件内容不是有效的 ${source.formatLabel} 文档。`);
+  }
+}
+
+function parseOfficeXml(bytes, formatLabel) {
+  try {
+    return XML_PARSER.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
+  } catch {
+    throw inputError(`${formatLabel} 文件内部结构损坏，无法安全预检。`);
+  }
+}
+
+function countTextCharacters(value, key = '') {
+  if (typeof value === 'string') return /(^|:)t$/.test(key) ? value.length : 0;
+  if (Array.isArray(value)) return value.reduce((sum, item) => sum + countTextCharacters(item, key), 0);
+  if (!value || typeof value !== 'object') return 0;
+  return Object.entries(value).reduce((sum, [childKey, child]) => sum + countTextCharacters(child, childKey), 0);
+}
+
+function decodeText(buffer) {
+  for (const encoding of ['utf-8', 'gb18030']) {
+    try {
+      return { text: new TextDecoder(encoding, { fatal: true }).decode(buffer), encoding };
+    } catch {
+      // Try the next company document encoding.
+    }
+  }
+  throw inputError('文本编码无法识别，请转换为 UTF-8 或 GB18030 后重试。');
 }
 
 export function readLocalManifest(source) {
@@ -263,6 +461,6 @@ function hashFileChunked(filePath) {
 function inputError(message) {
   const error = new Error(message);
   error.code = 'INVALID_SOURCE';
-  error.recovery = '检查 sourcePath，并确保选择完整的静态 HTML 作品目录。';
+  error.recovery = '检查 sourcePath、文件格式和内容后重试。';
   return error;
 }

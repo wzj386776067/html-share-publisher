@@ -1,4 +1,4 @@
 interface:
-  display_name: "HTML 分享发布"
-  short_description: "通过钉钉鉴权安全发布、更新、下架或恢复 HTML 作品"
-  default_prompt: "使用 $html-share-publisher 检查并发布当前 HTML 作品，执行前先向我展示最终确认摘要。"
+  display_name: "碧橙内容发布"
+  short_description: "通过钉钉鉴权安全发布、更新、下架或恢复网站和文档"
+  default_prompt: "使用 $html-share-publisher 检查并发布当前网站或文档，执行前先向我展示最终确认摘要。"

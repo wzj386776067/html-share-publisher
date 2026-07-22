@@ -53,14 +53,22 @@ export async function apiRequest(pathname, { method = 'GET', body, headers = {},
 }
 
 export async function uploadZip(pathname, zipPath, headers = {}) {
-  const stat = fs.statSync(zipPath);
-  return await apiRequest(pathname, {
+  return uploadFile(pathname, zipPath, {
+    contentType: 'application/zip',
+    headers
+  });
+}
+
+export async function uploadFile(pathname, filePath, { filename = '', contentType = 'application/octet-stream', headers = {} } = {}) {
+  const stat = fs.statSync(filePath);
+  return apiRequest(pathname, {
     method: 'POST',
     headers: {
-      'content-type': 'application/zip',
+      'content-type': contentType,
       'content-length': String(stat.size),
+      ...(filename ? { 'x-upload-filename': encodeURIComponent(filename) } : {}),
       ...headers
     },
-    body: fs.createReadStream(zipPath)
+    body: fs.createReadStream(filePath)
   });
 }

@@ -1,8 +1,8 @@
 {
   "mcpServers": {
     "html-share": {
-      "title": "HTML 分享发布",
-      "description": "预检、发布和更新本地 HTML 作品，并管理访问权限。",
+      "title": "碧橙内容发布",
+      "description": "预检、发布和更新本地静态网站与文档，并管理访问权限。",
       "cwd": ".",
       "command": "node",
       "args": ["./mcp/server.mjs"],

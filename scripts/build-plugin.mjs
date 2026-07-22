@@ -46,6 +46,10 @@ await Promise.all([
     format: 'cjs'
   })
 ]);
+for (const outputPath of [bundledServer, bundledVerifier]) {
+  const output = fs.readFileSync(outputPath, 'utf8').replace(/[ \t]+$/gm, '');
+  fs.writeFileSync(outputPath, output);
+}
 
 fs.rmSync(skillTarget, { recursive: true, force: true });
 fs.mkdirSync(path.dirname(skillTarget), { recursive: true });

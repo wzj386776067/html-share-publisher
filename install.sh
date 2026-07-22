@@ -15,7 +15,7 @@ usage() {
 Usage: install.sh [options]
 
 Options:
-  --version VERSION       Install a release tag such as v0.3.0 (default: latest)
+  --version VERSION       Install a release tag such as v0.5.0 (default: latest)
   --api-base URL          Workbench API origin
   --install-root PATH     MCP installation root
   --client CLIENTS        auto, all, codex, workbuddy, trae, codebuddy, or generic
@@ -215,5 +215,5 @@ echo "HTML Share Publisher $VERSION installed successfully."
 echo "MCP:   $INSTALL_ROOT/launcher.mjs"
 echo "Clients: $CLIENTS"
 if [[ "$SKIP_REGISTER" -eq 0 ]]; then
-  echo "Restart the current AI client or open a new task, then ask it to publish an HTML site."
+  echo "Restart the current AI client or open a new task, then ask it to publish a website or document."
 fi

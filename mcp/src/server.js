@@ -17,17 +17,17 @@ import {
 } from './service.js';
 
 const server = new McpServer(
-  { name: 'html-share-workbench', version: '0.4.7' },
+  { name: 'html-share-workbench', version: '0.5.0' },
   {
     instructions: [
-      '发布或更新本地 HTML 必须走同一个安全流程：',
+      '发布或更新本地内容必须走同一个安全流程；支持静态网站、Markdown、TXT、Word、PowerPoint 和 Excel：',
       '1. 先调用 auth_status；需要钉钉授权时再调用 start_login。',
-      '2. 调用 precheck_package 预检文件；存在多个 HTML 时必须展示全部候选并让用户确认，即使建议入口是 index.html 也不能自行决定。',
+      '2. 调用 precheck_package 在本机预检文件，确认前不得上传；存在多个 HTML 时必须展示全部候选并让用户确认，即使建议入口是 index.html 也不能自行决定。文档固定转换为网页，不询问 HTML 入口。',
       '3. 如果用户未提供作品名称，必须询问用户使用建议名称还是自定义名称；更新时也可以明确选择保留线上名称。',
       '4. 精确判断新建还是更新；需要更新时用 find_sites 或本地 manifest 定位，不能按相似标题猜测。',
       '5. 如果用户未说明分享范围，必须让用户明确选择仅协作者、公司内部链接或外部密码链接，绝不能自行选择。仅协作者可见时，用 resolve_contacts 解析人员或部门。',
       '6. 用户选择外部密码链接但未指定有效期时，不要额外阻塞询问；明确告知将使用默认 90 天且可在最终确认时修改。',
-      '7. 调用 prepare_publish 时必须传入用户已明确作出的名称决策和分享范围确认，把完整 confirmation 展示给用户；外部访问必须同时展示有效天数、准确到期时间和是否使用默认值。',
+      '7. 调用 prepare_publish 时必须传入用户已明确作出的名称决策和分享范围确认，把完整 confirmation 展示给用户；文档还必须展示格式、大小和转换限制，外部访问必须同时展示有效天数、准确到期时间和是否使用默认值。',
       '8. 展示 confirmation 后停止；用户可以直接确认，也可以先修改外链有效期。用户要求修改时必须重新调用 prepare_publish 并展示新的 confirmation，不能执行旧计划。',
       '9. 只有用户对当前最新 confirmation 明确确认后，才能调用 execute_publish。发布完成后只把 recipientUrl 作为给接收者的链接；external_link 时绝不能用内部 shareUrl 代替外部密码链接。',
       '10. 下架或恢复作品不走文件发布流程：先用 find_sites 精确定位，再调用 prepare_site_status_change 展示影响并停止；只有用户明确确认后才能调用 execute_site_status_change。',
@@ -59,10 +59,10 @@ register('revoke_authorization', {
 }, revokeAuthorization);
 
 register('precheck_package', {
-  title: '预检 HTML 作品',
-  description: '只在本机读取目录、HTML 或 ZIP，完成入口、大小和敏感文件预检，不会上传或发布。',
+  title: '预检作品文件',
+  description: '只在本机读取静态网站、HTML、ZIP 或文档，完成入口、格式、大小和风险预检，不会上传或发布。',
   inputSchema: {
-    sourcePath: z.string().min(1).describe('本地作品目录、HTML 文件或 ZIP 的绝对路径'),
+    sourcePath: z.string().min(1).describe('本地静态网站目录、HTML、ZIP、Markdown、TXT、Word、PowerPoint 或 Excel 文件的绝对路径'),
     entryFile: z.string().optional().describe('多个 HTML 时明确指定的包内入口路径')
   },
   annotations: { readOnlyHint: true }
@@ -108,8 +108,8 @@ register('resolve_contacts', {
 }, resolveContacts);
 
 register('prepare_publish', {
-  title: '准备 HTML 发布',
-  description: '校验文件、更新目标和权限，生成 15 分钟有效的最终确认摘要；不会写入服务器。',
+  title: '准备内容发布',
+  description: '校验静态网站或文档、更新目标和权限，生成 15 分钟有效的最终确认摘要；不会上传文件或写入服务器。',
   inputSchema: {
     sourcePath: z.string().min(1),
     operation: z.enum(['new', 'update']),
@@ -138,8 +138,8 @@ register('prepare_publish', {
 }, preparePublish);
 
 register('execute_publish', {
-  title: '执行 HTML 发布',
-  description: '仅在用户明确确认 prepare_publish 的完整摘要后执行新建或版本更新，并写回本地精准更新 manifest。',
+  title: '执行内容发布',
+  description: '仅在用户明确确认 prepare_publish 的完整摘要后上传源文件，执行新建或版本更新，并写回本地精准更新 manifest。',
   inputSchema: {
     planId: z.string().min(1),
     confirmed: z.literal(true).describe('只有用户明确确认后才能传 true')
