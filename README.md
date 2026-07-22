@@ -1,6 +1,6 @@
 # HTML Share Publisher
 
-碧橙 HTML 分享工作台的通用 AI 发布客户端。仓库只包含本地 MCP、客户端适配、Skill 和安装工具，不包含工作台后端、钉钉应用密钥或用户授权令牌。
+碧橙内容发布平台的通用 AI 发布客户端。仓库只包含本地 MCP、客户端适配、Skill 和安装工具，不包含平台后端、钉钉应用密钥或用户授权令牌。
 
 > **重要：本仓库不是一个可独立使用的 Skill，而是 Codex Plugin + 本地 MCP + Skill 组合包。只复制 `skills/html-share-publisher` 属于不完整安装。**
 
