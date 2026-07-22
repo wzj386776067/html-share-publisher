@@ -40,9 +40,11 @@ export function configureClients(options) {
 
   if (selectedClients.includes('workbuddy')) {
     const configPath = path.join(context.home, '.workbuddy', 'mcp.json');
+    const skillPath = path.join(context.home, '.workbuddy', 'skills', 'html-share-publisher');
     writeMcpConfig(configPath, serverConfigFor('WorkBuddy'));
+    installSkill(context.skillSource, skillPath);
     configured.push({ client: 'workbuddy', path: configPath });
-    warnings.push('WorkBuddy uses MCP self-instructions; restart WorkBuddy after installation.');
+    skills.push({ client: 'workbuddy', path: skillPath });
   }
 
   if (selectedClients.includes('trae')) {

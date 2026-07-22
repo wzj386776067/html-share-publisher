@@ -27735,7 +27735,7 @@ function toolError(code, message, recovery = "") {
 
 // src/server.js
 var server = new McpServer(
-  { name: "html-share-workbench", version: "0.5.0" },
+  { name: "html-share-workbench", version: "0.5.1" },
   {
     instructions: [
       "\u53D1\u5E03\u6216\u66F4\u65B0\u672C\u5730\u5185\u5BB9\u5FC5\u987B\u8D70\u540C\u4E00\u4E2A\u5B89\u5168\u6D41\u7A0B\uFF1B\u652F\u6301\u9759\u6001\u7F51\u7AD9\u3001Markdown\u3001TXT\u3001Word\u3001PowerPoint \u548C Excel\uFF1A",
