@@ -76,6 +76,6 @@ After restart or in a new local task, verify that the client exposes the ten `ht
 把这个 HTML 作品发布出去，只允许我自己访问。执行前先给我看最终确认摘要。
 ```
 
-The same workflow supports local static websites and `.md`, `.txt`, `.docx`, `.pptx`, or `.xlsx` documents. Legacy `.doc`, `.ppt`, and `.xls` files must be saved in their modern formats first. Precheck and preparation stay local; the source file is uploaded only after the user confirms the latest summary.
+The same workflow supports a direct `.html` file, local static websites, and `.md`, `.txt`, `.docx`, `.pptx`, or `.xlsx` documents. A direct HTML file is packaged automatically as `index.html`; local images, CSS, or JavaScript require selecting the complete directory or ZIP instead. Legacy `.doc`, `.ppt`, and `.xls` files must be saved in their modern formats first. Precheck and preparation stay local; the source file is uploaded only after the user confirms the latest summary.
 
 Clients without a dedicated adapter can import the generated `~/.local/share/html-share-publisher/mcp-config.json`. A cloud-only client that cannot run local MCP servers is not compatible; state that boundary instead of pretending installation succeeded.

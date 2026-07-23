@@ -104,9 +104,12 @@ export function inspectSource(sourcePath) {
       defaultTitle: path.basename(absolutePath, path.extname(absolutePath)),
       manifestPath: sidecarManifestPath(absolutePath),
       kind: 'html',
+      sourceFormat: 'html',
+      formatLabel: 'HTML',
+      displayMode: 'website',
       files: [absolutePath],
       fingerprint: hashFiles([absolutePath], path.dirname(absolutePath)),
-      warnings: ['当前只会打包这个 HTML 文件；若页面引用本地图片、CSS 或 JS，请改为选择整个目录。']
+      warnings: ['当前只会发布这个 HTML 文件；若页面引用本地图片、CSS 或 JavaScript，请改为选择包含完整资源的目录或 ZIP。']
     };
   }
 
@@ -134,7 +137,7 @@ export function packageSource(source) {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'html-share-mcp-'));
   const zipPath = path.join(tempDir, 'publish.zip');
   const files = Object.fromEntries(source.files.map((file) => [
-    path.relative(source.sourceRoot, file).replaceAll(path.sep, '/'),
+    source.kind === 'html' ? 'index.html' : path.relative(source.sourceRoot, file).replaceAll(path.sep, '/'),
     new Uint8Array(fs.readFileSync(file))
   ]));
   fs.writeFileSync(zipPath, zipSync(files, { level: 6 }));

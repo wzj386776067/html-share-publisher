@@ -98,6 +98,8 @@ codex plugin add html-share-publisher@bicheng-html-share
 
 直接文档支持 `.md`、`.txt`、`.docx`、`.pptx` 和 `.xlsx`。旧版 `.doc`、`.ppt`、`.xls` 请先另存为新版格式。文档在最终确认前只在本机预检，确认后才上传原文件并由平台转换为网页。
 
+单个 `.html` 也可以直接发布，无需手工压缩。MCP 会自动把它封装为以 `index.html` 为入口的发布包；如果页面引用本地图片、CSS 或 JavaScript，请选择包含完整资源的目录或 ZIP。
+
 首次使用会返回一次性钉钉授权链接。完成授权后，AI 会继续预检、确认新建或更新、设置权限，并在真正上传前再次等待明确确认。
 
 也可以测试更新链路：
@@ -110,7 +112,7 @@ codex plugin add html-share-publisher@bicheng-html-share
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/wzj386776067/html-share-publisher/main/install.sh \
-  | bash -s -- --version v0.5.1
+  | bash -s -- --version v0.5.2
 ```
 
 重复运行安装命令即可升级或修复安装。发布凭证保存在 `~/.config/html-share`，升级不会删除凭证。

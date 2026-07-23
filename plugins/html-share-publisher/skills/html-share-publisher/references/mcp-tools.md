@@ -33,6 +33,8 @@
 
 `precheck_package` 会返回完整 `htmlCandidates`、`suggestedEntryFile` 和 `requiresEntrySelection`。候选超过一个时，即使建议入口是 `index.html`，也必须让用户明确确认，并在 `prepare_publish` 中同时传 `entryFile` 和 `entryFileConfirmed: true`。
 
+单个 `.html` 或 `.htm` 可以直接作为 `sourcePath`，无需用户手工创建 ZIP。MCP 会在本机自动封装为只含 `index.html` 的安全上传包，并返回 `sourceKind: html`、`sourceFormat: html` 和单文件边界警告。它不会自动收集同目录的图片、CSS 或 JavaScript；存在这些本地依赖时应改为选择包含完整资源的目录或 ZIP。
+
 直接文档支持 `.md`、`.txt`、`.docx`、`.pptx` 和 `.xlsx`。文档预检返回 `sourceFormat`、`formatLabel`、`sourceFilename`、`displayMode`、大小、格式摘要和 `warnings`；`htmlCandidates` 为空，入口由平台固定生成为 `index.html`，不得要求用户选择入口。旧版 `.doc`、`.ppt` 和 `.xls` 不支持，应提示另存为新版格式。预检只读取本地文件，只有 `execute_publish` 才上传原文档并由服务器转换。
 
 `prepare_publish.confirmation.source` 描述本次来源。文档必须向用户展示 `filename`、`formatLabel`、`size`、`details` 和全部 `conversionWarnings`；静态网站仍展示 `entryFile` 和 `package`。Word/PowerPoint 转换为网页预览时不保留宏、动态控件、动画、切换、音视频和外部数据；Excel 的隐藏工作表和高级对象按预检警告处理。

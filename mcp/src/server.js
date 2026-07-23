@@ -17,12 +17,12 @@ import {
 } from './service.js';
 
 const server = new McpServer(
-  { name: 'html-share-workbench', version: '0.5.1' },
+  { name: 'html-share-workbench', version: '0.5.2' },
   {
     instructions: [
-      '发布或更新本地内容必须走同一个安全流程；支持静态网站、Markdown、TXT、Word、PowerPoint 和 Excel：',
+      '发布或更新本地内容必须走同一个安全流程；支持单个 HTML、静态网站目录、ZIP、Markdown、TXT、Word、PowerPoint 和 Excel：',
       '1. 先调用 auth_status；需要钉钉授权时再调用 start_login。',
-      '2. 调用 precheck_package 在本机预检文件，确认前不得上传；存在多个 HTML 时必须展示全部候选并让用户确认，即使建议入口是 index.html 也不能自行决定。文档固定转换为网页，不询问 HTML 入口。',
+      '2. 调用 precheck_package 在本机预检文件，确认前不得上传；单个 HTML 会自动封装为 index.html，无需用户手工压缩，但只包含该文件。存在多个 HTML 时必须展示全部候选并让用户确认，即使建议入口是 index.html 也不能自行决定。文档固定转换为网页，不询问 HTML 入口。',
       '3. 如果用户未提供作品名称，必须询问用户使用建议名称还是自定义名称；更新时也可以明确选择保留线上名称。',
       '4. 精确判断新建还是更新；需要更新时用 find_sites 或本地 manifest 定位，不能按相似标题猜测。',
       '5. 如果用户未说明分享范围，必须让用户明确选择仅协作者、公司内部链接或外部密码链接，绝不能自行选择。仅协作者可见时，用 resolve_contacts 解析人员或部门。',
@@ -60,7 +60,7 @@ register('revoke_authorization', {
 
 register('precheck_package', {
   title: '预检作品文件',
-  description: '只在本机读取静态网站、HTML、ZIP 或文档，完成入口、格式、大小和风险预检，不会上传或发布。',
+  description: '只在本机读取静态网站、单个 HTML、ZIP 或文档，完成自动封装、入口、格式、大小和风险预检，不会上传或发布。',
   inputSchema: {
     sourcePath: z.string().min(1).describe('本地静态网站目录、HTML、ZIP、Markdown、TXT、Word、PowerPoint 或 Excel 文件的绝对路径'),
     entryFile: z.string().optional().describe('多个 HTML 时明确指定的包内入口路径')

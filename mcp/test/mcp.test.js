@@ -42,6 +42,7 @@ test('exposes the complete safe publish tool set over MCP stdio', async () => {
     assert.match(client.getInstructions(), /重新调用 prepare_publish 并展示新的 confirmation/);
     assert.match(client.getInstructions(), /只把 recipientUrl 作为给接收者的链接/);
     assert.match(client.getInstructions(), /external_link 时绝不能用内部 shareUrl/);
+    assert.match(client.getInstructions(), /单个 HTML 会自动封装为 index\.html/);
     assert.match(client.getInstructions(), /Markdown、TXT、Word、PowerPoint 和 Excel/);
     assert.deepEqual(result.tools.map((tool) => tool.name), [
       'auth_status',
@@ -392,7 +393,7 @@ test('uses distinct manifest sidecars for standalone source documents', () => {
   assert.equal(source.manifestPath, path.join(root, '年度总结.htmlshare.json'));
 });
 
-test('uploads original documents while keeping HTML sources on the ZIP path', () => {
+test('uploads original documents and automatically packages a standalone HTML as index.html', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'html-share-mcp-upload-source-'));
   const markdownPath = path.join(root, '公告.md');
   fs.writeFileSync(markdownPath, '# 公告');
@@ -403,12 +404,24 @@ test('uploads original documents while keeping HTML sources on the ZIP path', ()
   assert.equal(documentUpload.contentType, 'application/octet-stream');
   documentUpload.cleanup();
 
-  fs.writeFileSync(path.join(root, 'index.html'), '<h1>公告</h1>');
-  const htmlUpload = prepareSourceUpload(inspectSource(path.join(root, 'index.html')));
+  const htmlPath = path.join(root, '公告页面.html');
+  fs.writeFileSync(htmlPath, '<h1>公告</h1>');
+  const htmlSource = inspectSource(htmlPath);
+  assert.equal(htmlSource.sourceFormat, 'html');
+  assert.equal(htmlSource.formatLabel, 'HTML');
+  assert.match(htmlSource.warnings[0], /只会发布这个 HTML 文件/);
+
+  const htmlPrecheck = precheckSourcePackage(htmlSource);
+  assert.equal(htmlPrecheck.entryFile, 'index.html');
+  assert.deepEqual(htmlPrecheck.htmlCandidates, ['index.html']);
+  assert.equal(htmlPrecheck.requiresEntrySelection, false);
+
+  const htmlUpload = prepareSourceUpload(htmlSource);
   try {
     assert.equal(htmlUpload.filename, 'upload.zip');
     assert.equal(htmlUpload.contentType, 'application/zip');
     assert.ok(fs.existsSync(htmlUpload.filePath));
+    assert.equal(execFileSync('unzip', ['-Z1', htmlUpload.filePath], { encoding: 'utf8' }).trim(), 'index.html');
   } finally {
     htmlUpload.cleanup();
   }
