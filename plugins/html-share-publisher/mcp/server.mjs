@@ -26567,7 +26567,7 @@ var SENSITIVE_NAME_PATTERNS = [
   /(^|[-_.])private[-_]?key([-_.]|$)/
 ];
 var MAX_FILES = 500;
-var MAX_FILE_BYTES = 20 * 1024 * 1024;
+var MAX_FILE_BYTES = 40 * 1024 * 1024;
 var MAX_TOTAL_BYTES = 150 * 1024 * 1024;
 var MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
 var MAX_TEXT_BYTES = 10 * 1024 * 1024;
@@ -26721,7 +26721,9 @@ function precheckSourcePackage(source, { entryFile = "" } = {}) {
       if (isUnsafeArchivePath(normalized)) errors.push(`\u5305\u542B\u8DEF\u5F84\u7A7F\u8D8A\u6216\u7EDD\u5BF9\u8DEF\u5F84\uFF1A${entry.path}`);
       if (BLOCKED_EXTENSIONS.has(extension)) errors.push(`\u5305\u542B\u4E0D\u652F\u6301\u7684\u6587\u4EF6\uFF1A${entry.path}`);
       if (isSensitivePath(normalized, false)) errors.push(`\u5305\u542B\u7591\u4F3C\u654F\u611F\u6587\u4EF6\uFF1A${entry.path}`);
-      if (entry.size > MAX_FILE_BYTES) errors.push(`\u5355\u4E2A\u6587\u4EF6\u8D85\u8FC7\u9650\u5236\uFF1A${entry.path}`);
+      if (entry.size > MAX_FILE_BYTES) {
+        errors.push(staticFileLimitMessage(entry.path, entry.size));
+      }
     }
     if (errors.length) throw inputError(errors.join("\n"));
     const stripPrefix = findStripPrefix(entries.map((entry) => entry.path.replaceAll("\\", "/")));
@@ -26918,12 +26920,26 @@ function validateSourceFiles(source) {
     if (BLOCKED_EXTENSIONS.has(path3.extname(relativePath).toLowerCase())) {
       throw inputError(`\u5305\u542B\u4E0D\u652F\u6301\u7684\u6587\u4EF6\uFF1A${relativePath}`);
     }
-    if (size > MAX_FILE_BYTES) throw inputError(`\u5355\u4E2A\u6587\u4EF6\u8D85\u8FC7\u9650\u5236\uFF1A${relativePath}`);
+    if (size > MAX_FILE_BYTES) {
+      throw inputError(staticFileLimitMessage(relativePath, size, {
+        standaloneHtml: source.kind === "html"
+      }));
+    }
   }
   if (totalBytes > MAX_TOTAL_BYTES) throw inputError("\u89E3\u538B\u540E\u603B\u5927\u5C0F\u8D85\u8FC7\u9650\u5236\uFF1A\u6700\u591A 150MB\u3002");
 }
 function isUnsafeArchivePath(filePath) {
   return !filePath || filePath.startsWith("/") || /^[A-Za-z]:\//.test(filePath) || filePath.split("/").some((part) => part === "..");
+}
+function staticFileLimitMessage(filename, size, { standaloneHtml = false } = {}) {
+  const subject = standaloneHtml ? "\u5355\u4E2A HTML" : "\u5355\u6587\u4EF6";
+  const recovery = standaloneHtml ? "\u8BF7\u538B\u7F29\u5185\u5D4C\u56FE\u7247\u3001\u5B57\u4F53\u6216\u5176\u4ED6\u8D44\u6E90\uFF0C\u6216\u9009\u62E9\u5305\u542B\u5B8C\u6574\u8D44\u6E90\u7684\u76EE\u5F55\u6216 ZIP\u3002" : "\u8BF7\u538B\u7F29\u8BE5\u6587\u4EF6\uFF0C\u6216\u62C6\u5206\u8D44\u6E90\u540E\u91CD\u65B0\u6253\u5305\u3002";
+  return `\u6587\u4EF6\u201C${filename}\u201D\u5927\u5C0F\u4E3A ${formatBytes(size)}\uFF0C\u8D85\u8FC7${subject} 40 MB \u4E0A\u9650\u3002${recovery}`;
+}
+function formatBytes(value) {
+  if (value < 1024) return `${value} B`;
+  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
+  return `${(value / 1024 / 1024).toFixed(1)} MB`;
 }
 function findStripPrefix(paths) {
   if (paths.includes("index.html")) return "";

@@ -427,6 +427,32 @@ test('uploads original documents and automatically packages a standalone HTML as
   }
 });
 
+test('uses the 40 MB static-file limit and explains oversized standalone HTML clearly', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'html-share-mcp-html-limit-'));
+  const acceptedPath = path.join(root, '二十一兆页面.html');
+  const rejectedPath = path.join(root, '南松AI应用分享.html');
+  fs.writeFileSync(acceptedPath, '');
+  fs.writeFileSync(rejectedPath, '');
+  fs.truncateSync(acceptedPath, 21 * 1024 * 1024);
+  fs.truncateSync(rejectedPath, 41 * 1024 * 1024);
+
+  const accepted = precheckSourcePackage(inspectSource(acceptedPath));
+  assert.equal(accepted.entryFile, 'index.html');
+  assert.equal(accepted.totalBytes, 21 * 1024 * 1024);
+
+  assert.throws(
+    () => precheckSourcePackage(inspectSource(rejectedPath)),
+    (error) => {
+      assert.match(error.message, /南松AI应用分享\.html/);
+      assert.match(error.message, /41\.0 MB/);
+      assert.match(error.message, /单个 HTML 40 MB 上限/);
+      assert.match(error.message, /压缩内嵌图片|选择包含完整资源的目录或 ZIP/);
+      assert.doesNotMatch(error.message, /index\.html/);
+      return true;
+    }
+  );
+});
+
 test('shows document conversion details in the final confirmation without asking for an entry file', () => {
   const confirmation = confirmationSummary({
     title: '季度路演',
