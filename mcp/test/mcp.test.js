@@ -18,12 +18,32 @@ import {
   normalizePrecheckResult,
   normalizeSiteId,
   normalizeSiteReference,
+  persistLocalBinding,
   resolvePublishedLinks,
   resolvePublishTitle,
   siteStatusConfirmation,
   validateAccessPolicyConfirmation,
   validateEntryFileConfirmation
 } from '../src/service.js';
+
+test('keeps remote publication successful when the local binding cannot be written', () => {
+  const result = persistLocalBinding({
+    manifestPath: '/read-only/site.htmlshare.json',
+    manifest: { siteId: 'site_committed' },
+    writer() {
+      const error = new Error('read only');
+      error.code = 'EACCES';
+      throw error;
+    }
+  });
+
+  assert.deepEqual(result, {
+    status: 'not_written',
+    manifestPath: '/read-only/site.htmlshare.json',
+    reason: 'EACCES',
+    recovery: '下次更新时使用本次返回的 siteId，或在有写权限的目录重新发布以恢复本地绑定。'
+  });
+});
 
 test('exposes the complete safe publish tool set over MCP stdio', async () => {
   const transport = new StdioClientTransport({
@@ -522,6 +542,28 @@ test('publishes an original document only after the confirmed MCP execution step
         expiresAt: new Date(Date.now() + 60_000).toISOString()
       });
     }
+    if (req.method === 'GET' && req.url?.startsWith('/api/sites?')) {
+      const target = new URL(req.url, 'http://localhost');
+      assert.equal(target.searchParams.get('scope'), 'owned');
+      assert.equal(target.searchParams.get('pageSize'), '10');
+      assert.equal(target.searchParams.get('q'), '公告');
+      return sendJson(res, 200, {
+        sites: [{
+          id: 'site_doc',
+          publicCode: 'AbCdEf123456',
+          ownerId: 'user_1',
+          ownerName: '测试用户',
+          title: '公告',
+          status: 'published',
+          accessPolicy: 'company_link',
+          currentVersion: { versionNumber: 1, entryFile: 'index.html' }
+        }],
+        total: 1,
+        page: 1,
+        pageSize: 10,
+        hasMore: false
+      });
+    }
     if (req.method === 'POST' && req.url === '/api/sites') {
       assert.equal(decodeURIComponent(req.headers['x-upload-filename']), '公告.md');
       assert.equal(req.headers['content-type'], 'application/octet-stream');
@@ -604,6 +646,9 @@ test('publishes an original document only after the confirmed MCP execution step
     const precheck = await client.callTool({ name: 'precheck_package', arguments: { sourcePath } });
     assert.equal(precheck.structuredContent.sourceFormat, 'md');
     assert.equal(requests.filter((request) => request.method === 'POST').length, 0);
+    const found = await client.callTool({ name: 'find_sites', arguments: { query: '公告' } });
+    assert.equal(found.structuredContent.total, 1);
+    assert.equal(found.structuredContent.sites[0].siteId, 'site_doc');
 
     const prepareArguments = {
       sourcePath,

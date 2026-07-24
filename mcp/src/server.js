@@ -17,7 +17,7 @@ import {
 } from './service.js';
 
 const server = new McpServer(
-  { name: 'html-share-workbench', version: '0.5.2' },
+  { name: 'html-share-workbench', version: '0.5.4' },
   {
     instructions: [
       '发布或更新本地内容必须走同一个安全流程；支持单个 HTML、静态网站目录、ZIP、Markdown、TXT、Word、PowerPoint 和 Excel：',
