@@ -19,6 +19,8 @@
 
 `execute_publish` 返回的 `recipientUrl` 是唯一可提供给接收者的链接，`recipientAccess` 表示 `dingtalk` 或 `external_password`。外部权限下，`shareUrl` 和 `internalPreviewUrl` 仅供发布者内部预览；如果 `recipientUrl` 为空或存在 `linkWarning`，不得用内部链接兜底。旧版 MCP 没有 `recipientUrl` 时，外部权限只允许使用 `externalUrl`。
 
+远端版本一旦提交，`execute_publish.status` 就返回 `published`。本地绑定结果单独记录在 `localBinding.status`：`written` 表示精准更新标识已写入，`not_written` 表示作品已经发布但本地清单写入失败。遇到 `not_written` 时必须向用户说明作品已经上线，并保留返回的 `siteId` 供下次精准更新，不能误报为发布失败或重复执行本次计划。
+
 传给 `prepare_publish` 的 `permissions` 必须使用 `resolve_contacts` 返回的原始对象：
 
 ```json

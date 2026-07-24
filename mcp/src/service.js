@@ -134,18 +134,17 @@ export async function findSites({ query = '' } = {}) {
     }
   }
 
-  const { data } = await apiRequest('/api/sites');
-  const normalizedQuery = normalize(query);
+  const params = new URLSearchParams({
+    scope: 'owned',
+    page: '1',
+    pageSize: '10'
+  });
+  if (String(query || '').trim()) params.set('q', String(query).trim());
+  const { data } = await apiRequest(`/api/sites?${params}`);
   const sites = data.sites
     .filter((site) => site.ownerId === authorization.user.id)
-    .filter((site) => {
-      if (explicitReference && reference.siteId) return site.id === reference.siteId;
-      if (explicitReference && reference.publicCode) return site.publicCode === reference.publicCode;
-      return !normalizedQuery || siteSearchText(site).includes(normalizedQuery);
-    })
-    .slice(0, 10)
     .map(siteSummary);
-  return { status: 'ok', sites, count: sites.length };
+  return { status: 'ok', sites, count: sites.length, total: Number(data.total ?? sites.length) };
 }
 
 export async function prepareSiteStatusChange({ siteId, action }) {
@@ -429,53 +428,98 @@ export async function executePublish({ planId, confirmed }) {
   }
 
   const upload = prepareSourceUpload(source);
+  const warnings = [];
+  let remotelyPublished = false;
   try {
     let site;
     if (plan.operation === 'new') site = await createSite(plan, upload);
     else site = await updateSite(plan, upload);
+    remotelyPublished = true;
 
-    const external = plan.accessPolicy === 'external_link' ? site.externalShare : null;
-    const { data: remoteManifest } = await apiRequest(`/api/sites/${encodeURIComponent(site.id)}/manifest`);
+    const currentVersion = site.currentVersion || {};
+    if (!site.currentVersion) {
+      warnings.push('作品已发布，但发布响应缺少版本摘要；请到工作台确认版本信息。');
+    }
+    const accessPolicy = site.accessPolicy || plan.accessPolicy;
+    const external = accessPolicy === 'external_link' ? site.externalShare : null;
+    let remoteManifest = {};
+    try {
+      remoteManifest = (await apiRequest(`/api/sites/${encodeURIComponent(site.id)}/manifest`)).data;
+    } catch {
+      warnings.push('作品已发布，但未能刷新远端 Manifest；返回结果使用发布接口中的链接。');
+    }
+    const shareUrl = remoteManifest.shareUrl || site.shareUrl || '';
     const publishedLinks = resolvePublishedLinks({
-      accessPolicy: site.accessPolicy,
-      shareUrl: remoteManifest.shareUrl,
+      accessPolicy,
+      shareUrl,
       externalUrl: external?.externalUrl || ''
     });
     const localManifest = {
       schemaVersion: 1,
       siteId: site.id,
       title: site.title,
-      shareUrl: remoteManifest.shareUrl,
+      shareUrl,
       sourceRoot: '.',
-      entryFile: site.currentVersion.entryFile,
-      sourceFormat: site.currentVersion.sourceFormat || plan.sourceFormat,
-      sourceFilename: site.currentVersion.sourceFilename || plan.sourceFilename,
-      lastVersionId: site.currentVersion.id,
+      entryFile: currentVersion.entryFile || plan.entryFile,
+      sourceFormat: currentVersion.sourceFormat || plan.sourceFormat,
+      sourceFilename: currentVersion.sourceFilename || plan.sourceFilename,
+      lastVersionId: currentVersion.id || '',
       lastPublishedAt: new Date().toISOString(),
-      lastContentHash: site.currentVersion.contentHash
+      lastContentHash: currentVersion.contentHash || ''
     };
-    writeManifest(plan.manifestPath, localManifest);
-    deletePlan(planId);
+    const localBinding = persistLocalBinding({
+      manifestPath: plan.manifestPath,
+      manifest: localManifest
+    });
+    if (localBinding.status !== 'written') {
+      warnings.push('作品已发布，但本地更新标识未写入；下次更新时请用 siteId 精确指定作品。');
+    }
+    try {
+      deletePlan(planId);
+    } catch {
+      warnings.push('作品已发布，但本地确认计划未能清理；请勿重复执行本次计划。');
+    }
     return {
       status: 'published',
       operation: plan.operation,
       siteId: site.id,
-      versionId: site.currentVersion.id,
-      versionNumber: site.currentVersion.versionNumber,
+      versionId: currentVersion.id || '',
+      versionNumber: currentVersion.versionNumber || null,
       title: site.title,
-      entryFile: site.currentVersion.entryFile,
-      sourceFormat: site.currentVersion.sourceFormat || plan.sourceFormat,
-      sourceFilename: site.currentVersion.sourceFilename || plan.sourceFilename,
-      accessPolicy: site.accessPolicy,
+      entryFile: currentVersion.entryFile || plan.entryFile,
+      sourceFormat: currentVersion.sourceFormat || plan.sourceFormat,
+      sourceFilename: currentVersion.sourceFilename || plan.sourceFilename,
+      accessPolicy,
       ...publishedLinks,
-      shareUrl: remoteManifest.shareUrl,
+      shareUrl,
       externalUrl: external?.externalUrl || '',
       externalPassword: plan.externalPassword,
       externalExpiresAt: plan.externalExpiresAt,
-      manifestPath: plan.manifestPath
+      manifestPath: plan.manifestPath,
+      localBinding,
+      warnings
     };
   } finally {
-    upload.cleanup();
+    try {
+      upload.cleanup();
+    } catch (error) {
+      if (!remotelyPublished) throw error;
+      warnings.push('作品已发布，但本机临时文件清理失败。');
+    }
+  }
+}
+
+export function persistLocalBinding({ manifestPath, manifest, writer = writeManifest }) {
+  try {
+    writer(manifestPath, manifest);
+    return { status: 'written', manifestPath };
+  } catch (error) {
+    return {
+      status: 'not_written',
+      manifestPath,
+      reason: error.code || 'write_failed',
+      recovery: '下次更新时使用本次返回的 siteId，或在有写权限的目录重新发布以恢复本地绑定。'
+    };
   }
 }
 
@@ -812,10 +856,6 @@ function siteSummary(site) {
   };
 }
 
-function siteSearchText(site) {
-  return normalize([site.id, site.publicCode, site.title, site.alias, site.ownerName].join(' '));
-}
-
 export function normalizeSiteId(value) {
   return normalizeSiteReference(value).siteId;
 }
@@ -841,10 +881,6 @@ export function normalizeSiteReference(value) {
   } catch {
     return { siteId: '', publicCode: '' };
   }
-}
-
-function normalize(value) {
-  return String(value || '').trim().toLocaleLowerCase('zh-CN');
 }
 
 function normalizeFutureDate(value) {

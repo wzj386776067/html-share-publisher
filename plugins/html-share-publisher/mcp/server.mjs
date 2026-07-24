@@ -27097,14 +27097,15 @@ async function findSites({ query = "" } = {}) {
       throw error2;
     }
   }
-  const { data } = await apiRequest("/api/sites");
-  const normalizedQuery = normalize(query);
-  const sites = data.sites.filter((site) => site.ownerId === authorization.user.id).filter((site) => {
-    if (explicitReference && reference.siteId) return site.id === reference.siteId;
-    if (explicitReference && reference.publicCode) return site.publicCode === reference.publicCode;
-    return !normalizedQuery || siteSearchText(site).includes(normalizedQuery);
-  }).slice(0, 10).map(siteSummary);
-  return { status: "ok", sites, count: sites.length };
+  const params = new URLSearchParams({
+    scope: "owned",
+    page: "1",
+    pageSize: "10"
+  });
+  if (String(query || "").trim()) params.set("q", String(query).trim());
+  const { data } = await apiRequest(`/api/sites?${params}`);
+  const sites = data.sites.filter((site) => site.ownerId === authorization.user.id).map(siteSummary);
+  return { status: "ok", sites, count: sites.length, total: Number(data.total ?? sites.length) };
 }
 async function prepareSiteStatusChange({ siteId, action }) {
   const authorization = await requireAuthorization();
@@ -27360,52 +27361,96 @@ async function executePublish({ planId, confirmed }) {
     throw toolError("SOURCE_CHANGED", "\u786E\u8BA4\u540E\u672C\u5730\u6587\u4EF6\u53D1\u751F\u4E86\u53D8\u5316\uFF0C\u5DF2\u505C\u6B62\u53D1\u5E03\u3002", "\u91CD\u65B0\u8C03\u7528 prepare_publish\uFF0C\u8BA9\u7528\u6237\u786E\u8BA4\u6700\u65B0\u5185\u5BB9\u3002");
   }
   const upload = prepareSourceUpload(source);
+  const warnings = [];
+  let remotelyPublished = false;
   try {
     let site;
     if (plan.operation === "new") site = await createSite(plan, upload);
     else site = await updateSite(plan, upload);
-    const external = plan.accessPolicy === "external_link" ? site.externalShare : null;
-    const { data: remoteManifest } = await apiRequest(`/api/sites/${encodeURIComponent(site.id)}/manifest`);
+    remotelyPublished = true;
+    const currentVersion = site.currentVersion || {};
+    if (!site.currentVersion) {
+      warnings.push("\u4F5C\u54C1\u5DF2\u53D1\u5E03\uFF0C\u4F46\u53D1\u5E03\u54CD\u5E94\u7F3A\u5C11\u7248\u672C\u6458\u8981\uFF1B\u8BF7\u5230\u5DE5\u4F5C\u53F0\u786E\u8BA4\u7248\u672C\u4FE1\u606F\u3002");
+    }
+    const accessPolicy = site.accessPolicy || plan.accessPolicy;
+    const external = accessPolicy === "external_link" ? site.externalShare : null;
+    let remoteManifest = {};
+    try {
+      remoteManifest = (await apiRequest(`/api/sites/${encodeURIComponent(site.id)}/manifest`)).data;
+    } catch {
+      warnings.push("\u4F5C\u54C1\u5DF2\u53D1\u5E03\uFF0C\u4F46\u672A\u80FD\u5237\u65B0\u8FDC\u7AEF Manifest\uFF1B\u8FD4\u56DE\u7ED3\u679C\u4F7F\u7528\u53D1\u5E03\u63A5\u53E3\u4E2D\u7684\u94FE\u63A5\u3002");
+    }
+    const shareUrl = remoteManifest.shareUrl || site.shareUrl || "";
     const publishedLinks = resolvePublishedLinks({
-      accessPolicy: site.accessPolicy,
-      shareUrl: remoteManifest.shareUrl,
+      accessPolicy,
+      shareUrl,
       externalUrl: external?.externalUrl || ""
     });
     const localManifest = {
       schemaVersion: 1,
       siteId: site.id,
       title: site.title,
-      shareUrl: remoteManifest.shareUrl,
+      shareUrl,
       sourceRoot: ".",
-      entryFile: site.currentVersion.entryFile,
-      sourceFormat: site.currentVersion.sourceFormat || plan.sourceFormat,
-      sourceFilename: site.currentVersion.sourceFilename || plan.sourceFilename,
-      lastVersionId: site.currentVersion.id,
+      entryFile: currentVersion.entryFile || plan.entryFile,
+      sourceFormat: currentVersion.sourceFormat || plan.sourceFormat,
+      sourceFilename: currentVersion.sourceFilename || plan.sourceFilename,
+      lastVersionId: currentVersion.id || "",
       lastPublishedAt: (/* @__PURE__ */ new Date()).toISOString(),
-      lastContentHash: site.currentVersion.contentHash
+      lastContentHash: currentVersion.contentHash || ""
     };
-    writeManifest(plan.manifestPath, localManifest);
-    deletePlan(planId);
+    const localBinding = persistLocalBinding({
+      manifestPath: plan.manifestPath,
+      manifest: localManifest
+    });
+    if (localBinding.status !== "written") {
+      warnings.push("\u4F5C\u54C1\u5DF2\u53D1\u5E03\uFF0C\u4F46\u672C\u5730\u66F4\u65B0\u6807\u8BC6\u672A\u5199\u5165\uFF1B\u4E0B\u6B21\u66F4\u65B0\u65F6\u8BF7\u7528 siteId \u7CBE\u786E\u6307\u5B9A\u4F5C\u54C1\u3002");
+    }
+    try {
+      deletePlan(planId);
+    } catch {
+      warnings.push("\u4F5C\u54C1\u5DF2\u53D1\u5E03\uFF0C\u4F46\u672C\u5730\u786E\u8BA4\u8BA1\u5212\u672A\u80FD\u6E05\u7406\uFF1B\u8BF7\u52FF\u91CD\u590D\u6267\u884C\u672C\u6B21\u8BA1\u5212\u3002");
+    }
     return {
       status: "published",
       operation: plan.operation,
       siteId: site.id,
-      versionId: site.currentVersion.id,
-      versionNumber: site.currentVersion.versionNumber,
+      versionId: currentVersion.id || "",
+      versionNumber: currentVersion.versionNumber || null,
       title: site.title,
-      entryFile: site.currentVersion.entryFile,
-      sourceFormat: site.currentVersion.sourceFormat || plan.sourceFormat,
-      sourceFilename: site.currentVersion.sourceFilename || plan.sourceFilename,
-      accessPolicy: site.accessPolicy,
+      entryFile: currentVersion.entryFile || plan.entryFile,
+      sourceFormat: currentVersion.sourceFormat || plan.sourceFormat,
+      sourceFilename: currentVersion.sourceFilename || plan.sourceFilename,
+      accessPolicy,
       ...publishedLinks,
-      shareUrl: remoteManifest.shareUrl,
+      shareUrl,
       externalUrl: external?.externalUrl || "",
       externalPassword: plan.externalPassword,
       externalExpiresAt: plan.externalExpiresAt,
-      manifestPath: plan.manifestPath
+      manifestPath: plan.manifestPath,
+      localBinding,
+      warnings
     };
   } finally {
-    upload.cleanup();
+    try {
+      upload.cleanup();
+    } catch (error2) {
+      if (!remotelyPublished) throw error2;
+      warnings.push("\u4F5C\u54C1\u5DF2\u53D1\u5E03\uFF0C\u4F46\u672C\u673A\u4E34\u65F6\u6587\u4EF6\u6E05\u7406\u5931\u8D25\u3002");
+    }
+  }
+}
+function persistLocalBinding({ manifestPath, manifest, writer = writeManifest }) {
+  try {
+    writer(manifestPath, manifest);
+    return { status: "written", manifestPath };
+  } catch (error2) {
+    return {
+      status: "not_written",
+      manifestPath,
+      reason: error2.code || "write_failed",
+      recovery: "\u4E0B\u6B21\u66F4\u65B0\u65F6\u4F7F\u7528\u672C\u6B21\u8FD4\u56DE\u7684 siteId\uFF0C\u6216\u5728\u6709\u5199\u6743\u9650\u7684\u76EE\u5F55\u91CD\u65B0\u53D1\u5E03\u4EE5\u6062\u590D\u672C\u5730\u7ED1\u5B9A\u3002"
+    };
   }
 }
 async function createSite(plan, upload) {
@@ -27695,9 +27740,6 @@ function siteSummary(site) {
     entryFile: site.currentVersion?.entryFile || ""
   };
 }
-function siteSearchText(site) {
-  return normalize([site.id, site.publicCode, site.title, site.alias, site.ownerName].join(" "));
-}
 function normalizeSiteReference(value) {
   const text = String(value || "").trim();
   if (/^site_[A-Za-z0-9_-]+$/.test(text)) return { siteId: text, publicCode: "" };
@@ -27717,9 +27759,6 @@ function normalizeSiteReference(value) {
   } catch {
     return { siteId: "", publicCode: "" };
   }
-}
-function normalize(value) {
-  return String(value || "").trim().toLocaleLowerCase("zh-CN");
 }
 function normalizeFutureDate(value) {
   const date3 = new Date(value);
@@ -27754,7 +27793,7 @@ function toolError(code, message, recovery = "") {
 
 // src/server.js
 var server = new McpServer(
-  { name: "html-share-workbench", version: "0.5.2" },
+  { name: "html-share-workbench", version: "0.5.4" },
   {
     instructions: [
       "\u53D1\u5E03\u6216\u66F4\u65B0\u672C\u5730\u5185\u5BB9\u5FC5\u987B\u8D70\u540C\u4E00\u4E2A\u5B89\u5168\u6D41\u7A0B\uFF1B\u652F\u6301\u5355\u4E2A HTML\u3001\u9759\u6001\u7F51\u7AD9\u76EE\u5F55\u3001ZIP\u3001Markdown\u3001TXT\u3001Word\u3001PowerPoint \u548C Excel\uFF1A",
