@@ -31,7 +31,7 @@ const SENSITIVE_NAME_PATTERNS = [
   /(^|[-_.])private[-_]?key([-_.]|$)/
 ];
 const MAX_FILES = 500;
-const MAX_FILE_BYTES = 20 * 1024 * 1024;
+const MAX_FILE_BYTES = 40 * 1024 * 1024;
 const MAX_TOTAL_BYTES = 150 * 1024 * 1024;
 const MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
 const MAX_TEXT_BYTES = 10 * 1024 * 1024;
@@ -181,7 +181,9 @@ export function precheckSourcePackage(source, { entryFile = '' } = {}) {
       if (isUnsafeArchivePath(normalized)) errors.push(`包含路径穿越或绝对路径：${entry.path}`);
       if (BLOCKED_EXTENSIONS.has(extension)) errors.push(`包含不支持的文件：${entry.path}`);
       if (isSensitivePath(normalized, false)) errors.push(`包含疑似敏感文件：${entry.path}`);
-      if (entry.size > MAX_FILE_BYTES) errors.push(`单个文件超过限制：${entry.path}`);
+      if (entry.size > MAX_FILE_BYTES) {
+        errors.push(staticFileLimitMessage(entry.path, entry.size));
+      }
     }
     if (errors.length) throw inputError(errors.join('\n'));
 
@@ -402,7 +404,11 @@ function validateSourceFiles(source) {
     if (BLOCKED_EXTENSIONS.has(path.extname(relativePath).toLowerCase())) {
       throw inputError(`包含不支持的文件：${relativePath}`);
     }
-    if (size > MAX_FILE_BYTES) throw inputError(`单个文件超过限制：${relativePath}`);
+    if (size > MAX_FILE_BYTES) {
+      throw inputError(staticFileLimitMessage(relativePath, size, {
+        standaloneHtml: source.kind === 'html'
+      }));
+    }
   }
   if (totalBytes > MAX_TOTAL_BYTES) throw inputError('解压后总大小超过限制：最多 150MB。');
 }
@@ -410,6 +416,20 @@ function validateSourceFiles(source) {
 function isUnsafeArchivePath(filePath) {
   return !filePath || filePath.startsWith('/') || /^[A-Za-z]:\//.test(filePath)
     || filePath.split('/').some((part) => part === '..');
+}
+
+function staticFileLimitMessage(filename, size, { standaloneHtml = false } = {}) {
+  const subject = standaloneHtml ? '单个 HTML' : '单文件';
+  const recovery = standaloneHtml
+    ? '请压缩内嵌图片、字体或其他资源，或选择包含完整资源的目录或 ZIP。'
+    : '请压缩该文件，或拆分资源后重新打包。';
+  return `文件“${filename}”大小为 ${formatBytes(size)}，超过${subject} 40 MB 上限。${recovery}`;
+}
+
+function formatBytes(value) {
+  if (value < 1024) return `${value} B`;
+  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
+  return `${(value / 1024 / 1024).toFixed(1)} MB`;
 }
 
 function findStripPrefix(paths) {
