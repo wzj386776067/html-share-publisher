@@ -340,13 +340,12 @@ export async function preparePublish(input) {
   const permissions = accessPolicy === 'collaborators'
     ? (input.permissions ?? site?.permissions ?? [])
     : [];
-  const externalPassword = accessPolicy === 'external_link'
-    ? normalizeExternalPassword(input.externalPassword)
-    : '';
-  const externalExpiryInput = String(input.externalExpiresAt || '').trim();
-  const externalExpiresAt = accessPolicy === 'external_link'
-    ? normalizeFutureDate(externalExpiryInput || new Date(Date.now() + DEFAULT_EXTERNAL_EXPIRY_DAYS * DAY_MS))
-    : '';
+  const externalAccess = resolveExternalAccessForPublish({
+    operation,
+    accessPolicy,
+    input,
+    site
+  });
   const plan = {
     id: `plan_${randomUUID()}`,
     kind: 'publish',
@@ -375,11 +374,7 @@ export async function preparePublish(input) {
     accessPolicyDecision: accessPolicy,
     accessPolicyConfirmed: true,
     permissions,
-    externalPassword,
-    externalExpiresAt,
-    externalExpiryMode: accessPolicy === 'external_link'
-      ? (externalExpiryInput ? 'custom' : 'default_90_days')
-      : '',
+    ...externalAccess,
     precheck: {
       fileCount: precheck.fileCount,
       totalBytes: precheck.totalBytes,
@@ -493,8 +488,11 @@ export async function executePublish({ planId, confirmed }) {
       ...publishedLinks,
       shareUrl,
       externalUrl: external?.externalUrl || '',
-      externalPassword: plan.externalPassword,
+      externalPassword: plan.externalPasswordMode === 'inherit_existing' ? null : plan.externalPassword,
+      externalPasswordMode: plan.externalPasswordMode,
+      externalPasswordChangeConfirmed: plan.externalPasswordChangeConfirmed === true,
       externalExpiresAt: plan.externalExpiresAt,
+      externalExpiryMode: plan.externalExpiryMode,
       manifestPath: plan.manifestPath,
       localBinding,
       warnings
@@ -554,18 +552,20 @@ async function updateSite(plan, upload) {
   })).data;
 }
 
-function publishMetadataForPlan(plan, alias) {
-  return {
+export function publishMetadataForPlan(plan, alias) {
+  const metadata = {
     title: plan.title,
     description: plan.description,
     alias,
     accessPolicy: plan.accessPolicy,
     permissions: plan.permissions,
     entryFile: plan.entryFile,
-    versionNote: plan.versionNote,
-    externalPassword: plan.accessPolicy === 'external_link' ? plan.externalPassword : undefined,
-    externalExpiresAt: plan.accessPolicy === 'external_link' ? plan.externalExpiresAt : undefined
+    versionNote: plan.versionNote
   };
+  if (plan.accessPolicy !== 'external_link') return metadata;
+  if (plan.externalPasswordMode !== 'inherit_existing') metadata.externalPassword = plan.externalPassword;
+  if (plan.externalExpiryMode !== 'inherit_existing') metadata.externalExpiresAt = plan.externalExpiresAt;
+  return metadata;
 }
 
 function publishContextForPlan(plan) {
@@ -648,7 +648,10 @@ export function confirmationSummary(plan, site) {
     collaborators: plan.permissions.map((permission) => ({ type: permission.scopeType, id: permission.scopeId, name: permission.scopeName })),
     externalAccess: plan.accessPolicy === 'external_link'
       ? {
-          password: plan.externalPassword,
+          password: plan.externalPasswordMode === 'inherit_existing' ? null : plan.externalPassword,
+          passwordMode: plan.externalPasswordMode,
+          passwordChangeConfirmed: plan.externalPasswordChangeConfirmed === true,
+          passwordDisplayText: plan.externalPasswordMode === 'inherit_existing' ? '保留现有密码' : '使用确认摘要中的 4 位密码',
           ...externalExpiryConfirmation(plan)
         }
       : null,
@@ -720,6 +723,17 @@ function restoreMessage(site) {
 }
 
 export function externalExpiryConfirmation(plan) {
+  if (plan.externalExpiryMode === 'inherit_existing') {
+    return {
+      expiresAt: plan.externalExpiresAt,
+      validityDays: null,
+      expiryMode: 'inherit_existing',
+      defaultApplied: false,
+      inherited: true,
+      canModifyBeforePublish: true,
+      displayText: plan.externalExpiresAt ? `保留现有有效期（到 ${plan.externalExpiresAt}）` : '保留现有有效期'
+    };
+  }
   const createdAt = Date.parse(plan.createdAt);
   const expiresAt = Date.parse(plan.externalExpiresAt);
   const validityDays = Math.max(1, Math.ceil((expiresAt - createdAt) / DAY_MS));
@@ -734,6 +748,50 @@ export function externalExpiryConfirmation(plan) {
       ? `默认 ${validityDays} 天，可在最终确认前修改`
       : `用户指定 ${validityDays} 天`
   };
+}
+
+export function resolveExternalAccessForPublish({ operation, accessPolicy, input = {}, site }) {
+  if (accessPolicy !== 'external_link') {
+    return {
+      externalPassword: '',
+      externalPasswordMode: '',
+      externalExpiresAt: '',
+      externalExpiryMode: ''
+    };
+  }
+
+  const existingExternalShare = operation === 'update'
+    && site?.accessPolicy === 'external_link'
+    && Boolean(site.externalShare);
+  const passwordInput = String(input.externalPassword || '').trim();
+  const expiryInput = String(input.externalExpiresAt || '').trim();
+
+  return {
+    externalPassword: existingExternalShare && !passwordInput
+      ? ''
+      : normalizeExternalPassword(passwordInput),
+    externalPasswordMode: existingExternalShare && !passwordInput
+      ? 'inherit_existing'
+      : passwordInput ? 'explicit' : 'generated',
+    externalPasswordChangeConfirmed: existingExternalShare && passwordInput
+      ? requireExternalPasswordChangeConfirmation(input.externalPasswordChangeConfirmed)
+      : false,
+    externalExpiresAt: existingExternalShare && !expiryInput
+      ? String(site.externalShare.expiresAt || '')
+      : normalizeFutureDate(expiryInput || new Date(Date.now() + DEFAULT_EXTERNAL_EXPIRY_DAYS * DAY_MS)),
+    externalExpiryMode: existingExternalShare && !expiryInput
+      ? 'inherit_existing'
+      : expiryInput ? 'custom' : 'default_90_days'
+  };
+}
+
+function requireExternalPasswordChangeConfirmation(confirmed) {
+  if (confirmed === true) return true;
+  throw toolError(
+    'EXTERNAL_PASSWORD_CHANGE_CONFIRMATION_REQUIRED',
+    '更新已有外链作品时，新密码尚未获得用户明确确认。',
+    '默认省略 externalPassword 以保留原密码；只有用户明确要求修改密码时，才同时传 externalPassword 和 externalPasswordChangeConfirmed=true。'
+  );
 }
 
 export function resolvePublishTitle({ operation, titleDecision, title, suggestedTitle, existingTitle }) {
@@ -904,7 +962,7 @@ function normalizeExternalPassword(value) {
     throw toolError(
       'INVALID_EXTERNAL_PASSWORD',
       '外链密码必须为 4 位，且仅可包含字母或数字。',
-      '请提供恰好 4 位英文字母或数字，或省略密码让系统自动生成。'
+      '请提供恰好 4 位英文字母或数字；新建外链时可省略并自动生成，更新已有外链时可省略并保留原密码。'
     );
   }
   return password;

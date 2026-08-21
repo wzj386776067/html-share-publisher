@@ -19,6 +19,8 @@ import {
   normalizeSiteId,
   normalizeSiteReference,
   persistLocalBinding,
+  publishMetadataForPlan,
+  resolveExternalAccessForPublish,
   resolvePublishedLinks,
   resolvePublishTitle,
   siteStatusConfirmation,
@@ -57,7 +59,8 @@ test('exposes the complete safe publish tool set over MCP stdio', async () => {
     assert.match(client.getInstructions(), /只有用户对当前最新 confirmation 明确确认后，才能调用 execute_publish/);
     assert.match(client.getInstructions(), /必须询问用户使用建议名称还是自定义名称/);
     assert.match(client.getInstructions(), /必须让用户明确选择/);
-    assert.match(client.getInstructions(), /默认 90 天且可在最终确认时修改/);
+    assert.match(client.getInstructions(), /更新已有外链作品时.*继承原设置/);
+    assert.match(client.getInstructions(), /绝不能自行生成密码或续期/);
     assert.match(client.getInstructions(), /有效天数、准确到期时间和是否使用默认值/);
     assert.match(client.getInstructions(), /重新调用 prepare_publish 并展示新的 confirmation/);
     assert.match(client.getInstructions(), /只把 recipientUrl 作为给接收者的链接/);
@@ -86,9 +89,12 @@ test('exposes the complete safe publish tool set over MCP stdio', async () => {
     assert.equal(passwordSchema.minLength, 4);
     assert.equal(passwordSchema.maxLength, 4);
     assert.equal(passwordSchema.pattern, '^[A-Za-z0-9]{4}$');
+    assert.match(passwordSchema.description, /更新已有外链时省略则保留原密码/);
+    assert.equal(prepare.inputSchema.properties.externalPasswordChangeConfirmed.const, true);
     assert.equal(prepare.inputSchema.properties.entryFileConfirmed.const, true);
     assert.match(prepare.inputSchema.properties.externalExpiresAt.description, /“30 天”/);
     assert.match(prepare.inputSchema.properties.externalExpiresAt.description, /默认 90 天/);
+    assert.match(prepare.inputSchema.properties.externalExpiresAt.description, /更新已有外链时省略则保留原有效期/);
     const prepareStatus = result.tools.find((tool) => tool.name === 'prepare_site_status_change');
     const executeStatus = result.tools.find((tool) => tool.name === 'execute_site_status_change');
     assert.deepEqual(prepareStatus.inputSchema.properties.action.enum, ['unpublish', 'republish']);
@@ -159,6 +165,117 @@ test('describes default and custom external expiry without adding another blocki
   assert.equal(customExpiry.validityDays, 30);
   assert.equal(customExpiry.defaultApplied, false);
   assert.equal(customExpiry.displayText, '用户指定 30 天');
+});
+
+test('inherits an existing external password on updates unless a replacement is explicit', () => {
+  const site = {
+    id: 'site_external',
+    accessPolicy: 'external_link',
+    externalShare: { expiresAt: '2099-12-31T16:00:00.000Z' }
+  };
+  const inherited = resolveExternalAccessForPublish({
+    operation: 'update',
+    accessPolicy: 'external_link',
+    input: {},
+    site
+  });
+  assert.deepEqual(inherited, {
+    externalPassword: '',
+    externalPasswordMode: 'inherit_existing',
+    externalPasswordChangeConfirmed: false,
+    externalExpiresAt: '2099-12-31T16:00:00.000Z',
+    externalExpiryMode: 'inherit_existing'
+  });
+
+  const inheritedMetadata = publishMetadataForPlan({
+    title: '外链报告',
+    description: '',
+    accessPolicy: 'external_link',
+    permissions: [],
+    entryFile: 'index.html',
+    versionNote: '',
+    ...inherited
+  }, '');
+  assert.equal(Object.hasOwn(inheritedMetadata, 'externalPassword'), false);
+  assert.equal(Object.hasOwn(inheritedMetadata, 'externalExpiresAt'), false);
+  assert.deepEqual(externalExpiryConfirmation({
+    externalExpiresAt: inherited.externalExpiresAt,
+    externalExpiryMode: inherited.externalExpiryMode
+  }), {
+    expiresAt: '2099-12-31T16:00:00.000Z',
+    validityDays: null,
+    expiryMode: 'inherit_existing',
+    defaultApplied: false,
+    inherited: true,
+    canModifyBeforePublish: true,
+    displayText: '保留现有有效期（到 2099-12-31T16:00:00.000Z）'
+  });
+
+  assert.throws(
+    () => resolveExternalAccessForPublish({
+      operation: 'update',
+      accessPolicy: 'external_link',
+      input: { externalPassword: 'C3d4' },
+      site
+    }),
+    (error) => error.code === 'EXTERNAL_PASSWORD_CHANGE_CONFIRMATION_REQUIRED'
+  );
+
+  const replaced = resolveExternalAccessForPublish({
+    operation: 'update',
+    accessPolicy: 'external_link',
+    input: { externalPassword: 'C3d4', externalPasswordChangeConfirmed: true },
+    site
+  });
+  assert.equal(replaced.externalPassword, 'C3d4');
+  assert.equal(replaced.externalPasswordMode, 'explicit');
+  assert.equal(replaced.externalPasswordChangeConfirmed, true);
+  const replacedMetadata = publishMetadataForPlan({
+    title: '外链报告',
+    description: '',
+    accessPolicy: 'external_link',
+    permissions: [],
+    entryFile: 'index.html',
+    versionNote: '',
+    ...replaced
+  }, '');
+  assert.equal(replacedMetadata.externalPassword, 'C3d4');
+  assert.equal(Object.hasOwn(replacedMetadata, 'externalExpiresAt'), false);
+
+  const expiryChanged = resolveExternalAccessForPublish({
+    operation: 'update',
+    accessPolicy: 'external_link',
+    input: { externalExpiresAt: '2099-07-01T00:00:00.000Z' },
+    site
+  });
+  const expiryChangedMetadata = publishMetadataForPlan({
+    title: '外链报告',
+    description: '',
+    accessPolicy: 'external_link',
+    permissions: [],
+    entryFile: 'index.html',
+    versionNote: '',
+    ...expiryChanged
+  }, '');
+  assert.equal(Object.hasOwn(expiryChangedMetadata, 'externalPassword'), false);
+  assert.equal(expiryChangedMetadata.externalExpiresAt, '2099-07-01T00:00:00.000Z');
+});
+
+test('still creates a password when external access is new or being enabled for the first time', () => {
+  for (const scenario of [
+    { operation: 'new', site: null },
+    { operation: 'update', site: { id: 'site_internal', accessPolicy: 'company_link', externalShare: null } }
+  ]) {
+    const access = resolveExternalAccessForPublish({
+      ...scenario,
+      accessPolicy: 'external_link',
+      input: {}
+    });
+    assert.match(access.externalPassword, /^[A-Za-z0-9]{4}$/);
+    assert.equal(access.externalPasswordMode, 'generated');
+    assert.equal(access.externalPasswordChangeConfirmed, false);
+    assert.equal(access.externalExpiryMode, 'default_90_days');
+  }
 });
 
 test('normalizes old and new precheck contracts and requires confirmed multi-html entry selection', () => {

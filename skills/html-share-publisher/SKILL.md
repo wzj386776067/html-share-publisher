@@ -62,12 +62,12 @@ AI 只能下架或恢复当前钉钉用户自己发布的作品，即使当前�
 8. 如果用户尚未明确分享范围，要求其从以下三种策略中选择一种：
    - `collaborators`：仅指定人员和部门可以访问。
    - `company_link`：公司员工获得链接即可访问。
-   - `external_link`：外部用户通过密码访问。密码必须恰好为 4 位 ASCII 字母或数字；用户未提供时自动生成。用户未指定有效期时，不增加单独的阻塞式提问，主动说明“默认 90 天，可在最终确认时修改”。
+   - `external_link`：外部用户通过密码访问。密码必须恰好为 4 位 ASCII 字母或数字。新建作品或首次开启外链时，用户未提供密码则自动生成，未指定有效期则说明“默认 90 天，可在最终确认时修改”。更新已经使用外链的作品时，用户没有明确要求修改密码或有效期，就不要传入对应字段，让 MCP 继承原密码和原有效期；绝不能因为更新内容而自动生成新密码或重新计算 90 天。只有用户明确要求修改密码时，才同时传入新 `externalPassword` 和 `externalPasswordChangeConfirmed: true`。
    - 只有用户已经明确选择后，才能在 `prepare_publish` 中传 `accessPolicyConfirmed: true`。不能根据内容用途、收件人或之前的作品权限自行代选。
 9. 使用协作者权限时调用 `resolve_contacts`，并原样保留返回的稳定 ID。姓名不存在或重名时，展示候选项并让用户选择，绝不能猜测。当前版本不支持群聊。
 10. 使用已经确认的源文件、操作类型、目标作品、`titleDecision`、`accessPolicy` 和 `accessPolicyConfirmed: true` 调用 `prepare_publish`；静态网站按需传入口文件，多 HTML 还必须传 `entryFileConfirmed: true`。
 11. 简洁完整地展示返回的 `confirmation`：
-   - 所有作品必须展示名称、新建或更新、目标作品、文件大小、分享范围、协作者，以及外部访问密码和有效期（如适用）。
+   - 所有作品必须展示名称、新建或更新、目标作品、文件大小、分享范围、协作者，以及外部访问密码和有效期（如适用）。`externalAccess.passwordMode=inherit_existing` 时应展示“保留现有密码”，不能把空密码展示给用户；`expiryMode=inherit_existing` 时展示“保留现有有效期”。
    - 静态网站和单个 HTML 展示入口文件、文件数量、大小以及全部预检警告。
    - 文档展示原文件名、格式、页数或工作表数等摘要，以及所有 `conversionWarnings`；不要把平台生成的 `index.html` 当成用户需要确认的入口。
    - 外部有效期必须同时展示天数和准确到期日期；默认值应写成“90 天（到 YYYY-MM-DD，可修改）”，不能只展示一串 ISO 时间。用户说“30 天”等相对期限时，将其换算为未来的准确 ISO 时间传给 `externalExpiresAt`。
@@ -76,7 +76,7 @@ AI 只能下架或恢复当前钉钉用户自己发布的作品，即使当前�
 14. 只有用户明确确认后，才能调用 `execute_publish`，并传入当前最新的 `planId` 和 `confirmed: true`。
 15. 发布完成后只把 `execute_publish.recipientUrl` 作为提供给接收者的链接，并说明 `recipientAccess`：
     - `collaborators`、`company_link` 应返回钉钉访问链接。
-    - `external_link` 必须返回外部密码链接、密码和有效期；绝不能把 `shareUrl` 或 `internalPreviewUrl` 当作对外链接。
+    - `external_link` 必须返回外部密码链接和有效期；新建或明确更换密码时返回本次密码，`externalPasswordMode=inherit_existing` 时明确说明“原密码保持不变”，不能把空值解释为无密码。绝不能把 `shareUrl` 或 `internalPreviewUrl` 当作对外链接。
     - 兼容旧版 MCP 时，如果没有 `recipientUrl`，外部权限只能使用 `externalUrl`，其他权限使用 `shareUrl`。
     - 如果 `recipientUrl` 为空或存在 `linkWarning`，说明作品已发布但安全分享链接未就绪，不能用内部预览链接兜底。
     同时返回 `siteId`、版本号、来源格式和权限摘要。说明公开短码只用于链接，本地精准更新仍绑定真实 `siteId`。本地清单文件：目录使用 `.htmlshare.json`；单个 HTML、ZIP 和文档使用与源文件对应的 `名称.htmlshare.json`，从而允许同一目录存在多个作品。若 `localBinding.status` 为 `not_written`，必须明确说明作品已经发布，只是本地精准更新标识未写入，并让用户保留 `siteId`；不得误报失败或重复执行发布。
@@ -106,6 +106,7 @@ AI 只能下架或恢复当前钉钉用户自己发布的作品，即使当前�
 - “发给张三和技术部看”表示使用 `collaborators`，然后解析协作者。
 - “全公司都能看”表示使用 `company_link`。
 - “给外部客户看，加密码”表示使用 `external_link`；用户未指定时生成 4 位字母数字密码，并使用 90 天有效期。应立即说明默认有效期可在最终确认时修改，不再单独追问一次。用户自定义密码不是恰好 4 位 ASCII 字母或数字时必须拒绝。
+- “更新这个外链作品”默认只更新内容并继承原密码、原有效期。只有用户明确说“把密码改成 A1b2”“重置密码”等指令时，才把新密码和 `externalPasswordChangeConfirmed: true` 传给 `prepare_publish`；只有用户明确修改有效期时才传 `externalExpiresAt`。
 - “把这份 PPT 发给技术部”表示选择该 `.pptx` 文件、解析技术部协作者，并在最终确认中说明动画、切换、音视频不会保留。
 - “发布这个 Excel，全公司可看”表示选择该 `.xlsx` 文件、使用 `company_link`，并在最终确认中展示可见工作表和隐藏工作表处理结果。
 
