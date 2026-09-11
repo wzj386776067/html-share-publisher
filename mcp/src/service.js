@@ -21,6 +21,10 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_EXTERNAL_EXPIRY_DAYS = 90;
 const EXTERNAL_PASSWORD_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
 
+function normalize(value) {
+  return String(value ?? '').trim().normalize('NFKC').toLocaleLowerCase('zh-CN');
+}
+
 export async function startLogin() {
   const current = await checkStoredAuthorization();
   if (current.status === 'authorized') return current;
@@ -289,10 +293,7 @@ export async function resolveContacts({ contacts }) {
       `/api/dingtalk/contacts/search?type=${contact.type}&q=${encodeURIComponent(contact.query)}&limit=20`
     );
     const candidates = data.scopes || [];
-    const exact = candidates.filter((candidate) => (
-      normalize(candidate.scopeName) === normalize(contact.query)
-      || String(candidate.scopeId) === String(contact.query)
-    ));
+    const exact = resolveContactCandidates(candidates, contact.query);
     if (exact.length === 1) resolved.push(exact[0]);
     else unresolved.push({ ...contact, reason: exact.length > 1 ? '存在多个同名结果。' : '没有唯一匹配。', candidates });
   }
@@ -302,6 +303,14 @@ export async function resolveContacts({ contacts }) {
     unresolved,
     nextStep: unresolved.length ? '请用户从候选项中明确选择，不能猜测协作者。' : '可把 resolved 原样传给 prepare_publish.permissions。'
   };
+}
+
+export function resolveContactCandidates(candidates, query) {
+  const normalizedQuery = normalize(query);
+  return candidates.filter((candidate) => (
+    normalize(candidate.scopeName) === normalizedQuery
+    || String(candidate.scopeId) === String(query)
+  ));
 }
 
 export async function preparePublish(input) {

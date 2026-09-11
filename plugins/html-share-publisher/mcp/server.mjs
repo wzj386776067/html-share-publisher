@@ -26996,6 +26996,9 @@ var PLAN_MAX_AGE_MS = 15 * 60 * 1e3;
 var DAY_MS = 24 * 60 * 60 * 1e3;
 var DEFAULT_EXTERNAL_EXPIRY_DAYS = 90;
 var EXTERNAL_PASSWORD_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+function normalize(value) {
+  return String(value ?? "").trim().normalize("NFKC").toLocaleLowerCase("zh-CN");
+}
 async function startLogin() {
   const current = await checkStoredAuthorization();
   if (current.status === "authorized") return current;
@@ -27240,7 +27243,7 @@ async function resolveContacts({ contacts }) {
       `/api/dingtalk/contacts/search?type=${contact.type}&q=${encodeURIComponent(contact.query)}&limit=20`
     );
     const candidates = data.scopes || [];
-    const exact = candidates.filter((candidate) => normalize(candidate.scopeName) === normalize(contact.query) || String(candidate.scopeId) === String(contact.query));
+    const exact = resolveContactCandidates(candidates, contact.query);
     if (exact.length === 1) resolved.push(exact[0]);
     else unresolved.push({ ...contact, reason: exact.length > 1 ? "\u5B58\u5728\u591A\u4E2A\u540C\u540D\u7ED3\u679C\u3002" : "\u6CA1\u6709\u552F\u4E00\u5339\u914D\u3002", candidates });
   }
@@ -27250,6 +27253,10 @@ async function resolveContacts({ contacts }) {
     unresolved,
     nextStep: unresolved.length ? "\u8BF7\u7528\u6237\u4ECE\u5019\u9009\u9879\u4E2D\u660E\u786E\u9009\u62E9\uFF0C\u4E0D\u80FD\u731C\u6D4B\u534F\u4F5C\u8005\u3002" : "\u53EF\u628A resolved \u539F\u6837\u4F20\u7ED9 prepare_publish.permissions\u3002"
   };
+}
+function resolveContactCandidates(candidates, query) {
+  const normalizedQuery = normalize(query);
+  return candidates.filter((candidate) => normalize(candidate.scopeName) === normalizedQuery || String(candidate.scopeId) === String(query));
 }
 async function preparePublish(input) {
   const authorization = await requireAuthorization();
@@ -27841,7 +27848,7 @@ function toolError(code, message, recovery = "") {
 
 // src/server.js
 var server = new McpServer(
-  { name: "html-share-workbench", version: "0.5.5" },
+  { name: "html-share-workbench", version: "0.5.6" },
   {
     instructions: [
       "\u53D1\u5E03\u6216\u66F4\u65B0\u672C\u5730\u5185\u5BB9\u5FC5\u987B\u8D70\u540C\u4E00\u4E2A\u5B89\u5168\u6D41\u7A0B\uFF1B\u652F\u6301\u5355\u4E2A HTML\u3001\u9759\u6001\u7F51\u7AD9\u76EE\u5F55\u3001ZIP\u3001Markdown\u3001TXT\u3001Word\u3001PowerPoint \u548C Excel\uFF1A",

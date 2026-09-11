@@ -20,6 +20,7 @@ import {
   normalizeSiteReference,
   persistLocalBinding,
   publishMetadataForPlan,
+  resolveContactCandidates,
   resolveExternalAccessForPublish,
   resolvePublishedLinks,
   resolvePublishTitle,
@@ -27,6 +28,18 @@ import {
   validateAccessPolicyConfirmation,
   validateEntryFileConfirmation
 } from '../src/service.js';
+
+test('matches collaborator candidates by normalized name or stable ID', () => {
+  const candidates = [
+    { scopeId: 'user_1', scopeName: ' 元让 ' },
+    { scopeId: 'dept_1', scopeName: '技术部' }
+  ];
+
+  assert.deepEqual(resolveContactCandidates(candidates, '元让'), [candidates[0]]);
+  assert.deepEqual(resolveContactCandidates(candidates, '技术部'), [candidates[1]]);
+  assert.deepEqual(resolveContactCandidates(candidates, 'dept_1'), [candidates[1]]);
+  assert.deepEqual(resolveContactCandidates(candidates, '不存在'), []);
+});
 
 test('keeps remote publication successful when the local binding cannot be written', () => {
   const result = persistLocalBinding({
