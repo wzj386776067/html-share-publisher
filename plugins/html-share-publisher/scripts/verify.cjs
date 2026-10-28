@@ -14673,6 +14673,8 @@ var expectedTools = [
   "revoke_authorization",
   "precheck_package",
   "find_sites",
+  "find_readable_sites",
+  "read_site_content",
   "prepare_site_status_change",
   "execute_site_status_change",
   "resolve_contacts",

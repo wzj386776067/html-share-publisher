@@ -13,7 +13,7 @@ export class ApiError extends Error {
   }
 }
 
-export async function apiRequest(pathname, { method = 'GET', body, headers = {}, authenticated = true } = {}) {
+export async function apiRequest(pathname, { method = 'GET', body, headers = {}, authenticated = true, timeoutMs } = {}) {
   const requestHeaders = {
     'x-html-share-client-name': clientName,
     ...headers
@@ -37,6 +37,7 @@ export async function apiRequest(pathname, { method = 'GET', body, headers = {},
   }
 
   const fetchOptions = { method, headers: requestHeaders, body: payload };
+  if (timeoutMs) fetchOptions.signal = AbortSignal.timeout(timeoutMs);
   if (payload && typeof payload.pipe === 'function') fetchOptions.duplex = 'half';
   const response = await fetch(`${apiBaseUrl}${pathname}`, fetchOptions);
   const contentType = response.headers.get('content-type') || '';
