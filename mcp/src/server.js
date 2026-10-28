@@ -83,7 +83,7 @@ register('find_sites', {
 
 register('find_readable_sites', {
   title: '检索有权读取的文档',
-  description: '准确链接通过 reference 自动校验权限；文件名通过 query 模糊检索当前用户有权访问的所有已发布作品。名称结果必须展示标题、发布人和更新时间，让用户确认后再读取。',
+  description: '准确链接通过 reference 自动校验权限；结果含 file 时需沿用它读取链接指定页面。文件名通过 query 模糊检索当前用户有权访问的所有已发布作品。名称结果必须展示标题、发布人和更新时间，让用户确认后再读取。',
   inputSchema: {
     query: z.string().min(1).max(200).optional().describe('用户给出的文件名或作品名；与 reference 二选一'),
     reference: z.string().min(1).max(2048).optional().describe('用户明确指定的本平台链接、作品 ID 或公开短码'),
