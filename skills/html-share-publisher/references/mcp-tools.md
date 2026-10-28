@@ -1,12 +1,14 @@
 # 碧橙内容发布 MCP 工具契约
 
-执行服务提供以下十个工具：
+执行服务提供以下十二个工具：
 
 - `auth_status`：读取本地委托授权状态，或完成已经发起的授权交换。
 - `start_login`：创建一次性钉钉授权链接。
 - `revoke_authorization`：撤销当前委托令牌并清除本地凭证。
 - `precheck_package`：在本机校验静态网站或文档，不上传、不发布。
 - `find_sites`：查找当前用户有权管理的作品。
+- `find_readable_sites`：`reference` 精确校验分享链接，或 `query` 按名称模糊搜索当前用户有权访问的全部已发布作品；两者二选一，`page` 翻页。名称查询的 `requiresSelection=true` 表示必须请用户确认，再读取返回的准确 ID。
+- `read_site_content`：以准确 `siteId` 读取正文，返回 `file`、`files`、`versionId`、`text`、`offset`、`nextOffset`、`hasMore`、`warnings`。续页沿用版本和文件；版本变化时重读，权限撤销时停止，不拼接版本。
 - `prepare_site_status_change`：读取准确目标的当前状态，创建 15 分钟有效的下架或恢复确认计划，不执行变更。
 - `execute_site_status_change`：执行用户已经明确确认的下架或恢复计划。
 - `resolve_contacts`：把人员和部门解析为稳定 ID。

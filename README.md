@@ -12,6 +12,9 @@
 - 设置仅协作者、公司内部链接或 4 位字母数字密码外链；
 - 最终确认后发布，并保留稳定链接和本地更新绑定。
 - 在确认影响后下架或恢复本人发布的作品，不删除文件和历史版本。
+- 按链接或文件名检索当前用户有权访问的全部已发布文档，名称候选由用户确认后读取正文、表格，用于分析或生成新内容。
+
+读取需要一次新增的 `content:read` 钉钉委托授权，旧发布授权不会自动扩大。用户可以说“读取这个碧橙链接，帮我分析销售变化”，或“查找林内销售报告，先列出相近文档让我选”。链接直接校验，文件名模糊检索必须先确认作品。支持分页和版本引用；不执行 JS、不做 OCR、不回传原始 Office/ZIP，外部密码链接暂不支持。读取权不包含修改他人作品的权限。
 
 ## 对 Codex 说一句话安装
 
@@ -112,7 +115,7 @@ codex plugin add html-share-publisher@bicheng-html-share
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/wzj386776067/html-share-publisher/main/install.sh \
-  | bash -s -- --version v0.5.6
+  | bash -s -- --version v0.6.0
 ```
 
 重复运行安装命令即可升级或修复安装。发布凭证保存在 `~/.config/html-share`，升级不会删除凭证。
